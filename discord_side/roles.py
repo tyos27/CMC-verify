@@ -72,8 +72,9 @@ def parse_rank_tags():
 def group_role_map():
     result = {}
 
-    for group_id, role_id in Env.roblox_group_roles:
-        result[int(group_id)] = int(role_id)
+    if getattr(Env, "roblox_group_roles", None):
+        for group_id, role_id in Env.roblox_group_roles:
+            result[int(group_id)] = int(role_id)
 
     return result
 
