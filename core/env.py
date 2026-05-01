@@ -6,10 +6,13 @@ load_dotenv()
 
 def pick(name, cast=str, default=None):
     value = os.getenv(name)
+
     if value is None or value == "":
         if default is not None:
             return default
+
         raise RuntimeError(f"missing env: {name}")
+
     return cast(value)
 
 
@@ -40,8 +43,10 @@ def parse_roblox_group_roles():
 
     def sort_key(item):
         suffix = item[0].replace("ROBLOX_GROUP_ID", "")
+
         if suffix.isdigit():
             return int(suffix)
+
         return 999999
 
     items.sort(key=sort_key)
@@ -67,13 +72,13 @@ class Env:
     roblox_redirect = pick("ROBLOX_REDIRECT_URI")
 
     roblox_group_roles = parse_roblox_group_roles()
+    rank_roles = pick("ROBLOX_RANK_ROLES", str, "")
 
     site_url = pick("SITE_URL")
 
     web_host = pick("WEB_HOST", str, "0.0.0.0")
-    web_port = pick("WEB_PORT", int, 8000)
+    web_port = pick("PORT", int, pick("WEB_PORT", int, 8000))
 
     tag = pick("DISCORD_GROUP_TAG", str, "")
-    rank_roles = pick("ROBLOX_RANK_ROLES", str, "")
 
     game_api_key = pick("GAME_API_KEY")
