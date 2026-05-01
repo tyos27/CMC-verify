@@ -11,23 +11,35 @@ def stamp():
 
 @bot.event
 async def on_ready():
-    if getattr(bot, "done_sync", False):
+    if getattr(bot, "done_ready", False):
         return
 
-    bot.done_sync = True
-
-    guild = discord.Object(id=Env.guild_id)
-
-    bot.tree.copy_global_to(guild=guild)
-    synced = await bot.tree.sync(guild=guild)
+    bot.done_ready = True
 
     print(f"ready: {bot.user}")
-    print("synced commands:", [cmd.name for cmd in synced])
+    print(f"guild id: {Env.guild_id}")
+
+    if str(Env.sync_commands).lower() in ("1", "true", "yes", "on"):
+        guild = discord.Object(id=Env.guild_id)
+
+        try:
+            synced = await bot.tree.sync(guild=guild)
+            print("synced commands:", [cmd.name for cmd in synced])
+        except Exception as e:
+            print("command sync failed:", e)
 
 
-@bot.tree.command(name="verify", description="Roblox 계정을 인증합니다.")
+@bot.tree.command(
+    name="verify",
+    description="Roblox 계정을 인증합니다.",
+    guild=discord.Object(id=Env.guild_id)
+)
 async def verify(itx: discord.Interaction):
-    await itx.response.defer(thinking=False)
+    try:
+        await itx.response.defer(thinking=False)
+    except Exception as e:
+        print("verify defer failed:", e)
+        return
 
     em = discord.Embed(
         title="✅ 계정 인증",
