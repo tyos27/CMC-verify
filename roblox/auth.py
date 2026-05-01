@@ -14,7 +14,6 @@ def link(state):
     redirect_uri = callback_url()
 
     print("oauth authorize redirect_uri:", redirect_uri)
-    print("oauth state:", state)
 
     return base + "/authorize?" + urlencode({
         "client_id": Env.roblox_client_id,
