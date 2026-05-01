@@ -442,17 +442,33 @@ class YesButton(Button):
 
         self.view.close()
 
+        await interaction.response.defer()
+
+        try:
+            await interaction.message.edit(
+                embed=panel(
+                    "⏳ 인증 처리 중",
+                    "기존 인증 정보를 확인하고 역할을 동기화하는 중입니다...",
+                    0x5865f2
+                ),
+                view=None
+            )
+        except Exception as e:
+            print("processing message edit failed:", e)
+
         ok, msg = await refresh(self.owner_id)
 
-        await interaction.response.edit_message(
-            embed=panel(
-                "✅ 인증 완료",
-                msg,
-                0x57f287 if ok else 0xed4245
-            ),
-            view=None
-        )
-
+        try:
+            await interaction.message.edit(
+                embed=panel(
+                    "✅ 인증 완료" if ok else "❌ 인증 실패",
+                    msg,
+                    0x57f287 if ok else 0xed4245
+                ),
+                view=None
+            )
+        except Exception as e:
+            print("final message edit failed:", e)
 
 class NoButton(Button):
     def __init__(self, owner_id):
