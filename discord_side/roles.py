@@ -91,7 +91,7 @@ def roblox_groups(user_id):
 
 
 def get_group_rows(user_id):
-    rows = {}
+    result = {}
 
     for item in roblox_groups(user_id):
         group = item.get("group") or {}
@@ -101,9 +101,9 @@ def get_group_rows(user_id):
         except Exception:
             continue
 
-        rows[group_id] = item
+        result[group_id] = item
 
-    return rows
+    return result
 
 
 def get_rank_from_group_row(row):
@@ -130,6 +130,15 @@ def clean(value):
     return value
 
 
+def default_tag():
+    tag = Env.tag.strip()
+
+    if ":" in tag or "," in tag:
+        return ""
+
+    return tag
+
+
 def make_nick(saved, user_rank):
     username = clean(saved.get("roblox_name"))
     display = clean(saved.get("roblox_display_name"))
@@ -145,7 +154,7 @@ def make_nick(saved, user_rank):
         prefix = "".join(f"[{tag}]" for tag in tags)
         nick = f"{prefix} {name}"
     else:
-        tag = Env.tag.strip()
+        tag = default_tag()
 
         if tag:
             nick = f"[{tag}] {name}"
@@ -182,7 +191,6 @@ async def refresh(discord_id):
     roblox_id = int(saved["roblox_id"])
 
     group_rows = get_group_rows(roblox_id)
-
     main_group_row = group_rows.get(int(Env.roblox_maingroup_id))
 
     if not main_group_row:
@@ -205,8 +213,8 @@ async def refresh(discord_id):
 
     all_rank_role_ids = set()
 
-    for ids in rank_roles.values():
-        for role_id in ids:
+    for role_ids in rank_roles.values():
+        for role_id in role_ids:
             all_rank_role_ids.add(role_id)
 
     should_rank_role_ids = set(rank_roles.get(user_rank, []))
