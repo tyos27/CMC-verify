@@ -73,6 +73,7 @@ class Env:
 
     roblox_group_roles = parse_roblox_group_roles()
     rank_roles = pick("ROBLOX_RANK_ROLES", str, "")
+    rank_tags = pick("ROBLOX_RANK_TAGS", str, "")
 
     site_url = pick("SITE_URL")
 
