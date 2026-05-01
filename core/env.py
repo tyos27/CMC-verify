@@ -61,9 +61,11 @@ class Env:
     supabase_url = pick("SUPABASE_URL")
     supabase_key = pick("SUPABASE_KEY")
 
+    site_url = pick("SITE_URL").rstrip("/")
+
     roblox_client_id = pick("ROBLOX_CLIENT_ID")
     roblox_client_secret = pick("ROBLOX_CLIENT_SECRET")
-    roblox_redirect = pick("ROBLOX_REDIRECT_URI")
+    roblox_redirect = site_url + "/oauth/callback"
 
     roblox_group_roles = parse_roblox_group_roles()
 
@@ -71,8 +73,6 @@ class Env:
         roblox_group_id = roblox_group_roles[0][0]
     else:
         roblox_group_id = pick("ROBLOX_GROUP_ID", int)
-
-    site_url = pick("SITE_URL")
 
     web_host = pick("WEB_HOST", str, "0.0.0.0")
     web_port = pick("PORT", int, pick("WEB_PORT", int, 8000))
