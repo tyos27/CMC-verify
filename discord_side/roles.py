@@ -69,21 +69,13 @@ def parse_rank_tags():
     return out
 
 
-def group_role_map():
+def optional_group_role_map():
     result = {}
 
-    if getattr(Env, "roblox_group_roles", None):
-        for group_id, role_id in Env.roblox_group_roles:
-            result[int(group_id)] = int(role_id)
+    for group_id, role_id in Env.roblox_group_roles:
+        result[int(group_id)] = int(role_id)
 
     return result
-
-
-def ordered_group_ids():
-    if getattr(Env, "roblox_group_roles", None):
-        return [group_id for group_id, _ in Env.roblox_group_roles]
-
-    return [Env.roblox_group_id]
 
 
 def roblox_groups(user_id):
@@ -92,44 +84,38 @@ def roblox_groups(user_id):
     r = requests.get(url, timeout=15)
 
     if r.status_code >= 400:
+        print("roblox group api failed:", r.status_code, r.text)
         return []
 
     return r.json().get("data", [])
 
 
-def joined_configured_groups(user_id):
-    targets = set(ordered_group_ids())
-    joined = {}
+def get_group_rows(user_id):
+    rows = {}
 
-    for row in roblox_groups(user_id):
-        group = row.get("group", {})
+    for item in roblox_groups(user_id):
+        group = item.get("group") or {}
 
         try:
             group_id = int(group.get("id", 0))
         except Exception:
             continue
 
-        if group_id in targets:
-            joined[group_id] = row
+        rows[group_id] = item
 
-    return joined
+    return rows
 
 
-def primary_rank(joined):
-    for group_id in ordered_group_ids():
-        row = joined.get(group_id)
+def get_rank_from_group_row(row):
+    if not row:
+        return 0
 
-        if not row:
-            continue
+    role = row.get("role") or {}
 
-        role = row.get("role", {})
-
-        try:
-            return int(role.get("rank", 0))
-        except Exception:
-            return 0
-
-    return 0
+    try:
+        return int(role.get("rank") or 0)
+    except Exception:
+        return 0
 
 
 def clean(value):
@@ -195,23 +181,27 @@ async def refresh(discord_id):
 
     roblox_id = int(saved["roblox_id"])
 
-    joined = joined_configured_groups(roblox_id)
+    group_rows = get_group_rows(roblox_id)
 
-    if not joined:
-        return False, "Roblox 그룹에 가입되어 있지 않습니다."
+    main_group_row = group_rows.get(int(Env.roblox_maingroup_id))
 
-    user_rank = primary_rank(joined)
+    if not main_group_row:
+        print("main group not joined:", Env.roblox_maingroup_id, "roblox:", roblox_id)
+        print("joined roblox groups:", list(group_rows.keys()))
+        return False, "Roblox 메인 그룹에 가입되어 있지 않습니다."
 
-    group_roles = group_role_map()
+    user_rank = get_rank_from_group_row(main_group_row)
+
+    optional_groups = optional_group_role_map()
     rank_roles = parse_rank_roles()
 
-    all_group_role_ids = set(group_roles.values())
+    all_optional_role_ids = set(optional_groups.values())
 
-    should_group_role_ids = {
-        group_roles[group_id]
-        for group_id in joined.keys()
-        if group_id in group_roles
-    }
+    should_optional_role_ids = set()
+
+    for group_id, discord_role_id in optional_groups.items():
+        if group_id in group_rows:
+            should_optional_role_ids.add(discord_role_id)
 
     all_rank_role_ids = set()
 
@@ -231,39 +221,44 @@ async def refresh(discord_id):
 
     remove_roles = []
 
-    if user_rank != 10:
-        for role in member.roles:
-            if role.id in all_group_role_ids and role.id not in should_group_role_ids:
-                remove_roles.append(role)
+    for role in member.roles:
+        if role.id in all_optional_role_ids and role.id not in should_optional_role_ids:
+            remove_roles.append(role)
 
-            if role.id in all_rank_role_ids and role.id not in should_rank_role_ids:
-                remove_roles.append(role)
+        if role.id in all_rank_role_ids and role.id not in should_rank_role_ids:
+            remove_roles.append(role)
 
     if remove_roles:
         try:
             await member.remove_roles(
                 *remove_roles,
-                reason="Roblox rank sync"
+                reason="Roblox role sync"
             )
         except Exception as e:
-            print("rank role remove failed:", e)
+            print("role remove failed:", e)
 
     add_roles = []
 
     if base_role not in member.roles:
         add_roles.append(base_role)
 
-    for role_id in should_group_role_ids:
+    for role_id in should_optional_role_ids:
         role = guild.get_role(role_id)
 
         if role and role not in member.roles:
             add_roles.append(role)
+
+        if not role:
+            print("optional discord role not found:", role_id)
 
     for role_id in should_rank_role_ids:
         role = guild.get_role(role_id)
 
         if role and role not in member.roles:
             add_roles.append(role)
+
+        if not role:
+            print("rank discord role not found:", role_id)
 
     unique_add_roles = []
     seen = set()
@@ -283,5 +278,6 @@ async def refresh(discord_id):
             )
         except Exception as e:
             print("role add failed:", e)
+            return False, "역할 지급에 실패했습니다. 봇 역할 위치나 권한을 확인해주세요."
 
     return True, f"{saved['roblox_name']} 계정 인증이 완료되었습니다."
