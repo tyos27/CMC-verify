@@ -19,7 +19,7 @@ async def on_ready():
     print(f"ready: {bot.user}")
     print(f"guild id: {Env.guild_id}")
 
-    if str(Env.sync_commands).lower() in ("1", "true", "yes", "on"):
+    if str(getattr(Env, "sync_commands", "0")).lower() in ("1", "true", "yes", "on"):
         guild = discord.Object(id=Env.guild_id)
 
         try:
@@ -50,10 +50,13 @@ async def verify(itx: discord.Interaction):
 
     view = Gate(itx.user.id)
 
-    msg = await itx.followup.send(
-        embed=em,
-        view=view,
-        wait=True
-    )
+    try:
+        msg = await itx.followup.send(
+            embed=em,
+            view=view,
+            wait=True
+        )
 
-    view.message = msg
+        view.message = msg
+    except Exception as e:
+        print("verify followup failed:", e)
