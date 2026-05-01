@@ -1,119 +1,213 @@
-import os
-import aiohttp
 from discord_side.client import bot
-from store.links import get
+from core.env import Env
+from store.links import pull
+from roblox.group import rows
 
-DISCORD_GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0"))
-DISCORD_ROLE_ID = int(os.getenv("DISCORD_ROLE_ID", "0"))
-ROBLOX_MAINGROUP_ID = int(os.getenv("ROBLOX_MAINGROUP_ID", "0"))
 
-def parse_rank_roles():
-    raw = os.getenv("ROBLOX_RANK_ROLES", "")
-    result = []
+def rank_map():
+    out = {}
 
-    for part in raw.split(","):
-        part = part.strip()
-        if not part or ":" not in part:
+    raw = Env.rank_roles
+
+    for row in raw.split(","):
+        row = row.strip()
+
+        if not row:
             continue
 
-        rank_text, role_text = part.split(":", 1)
+        if ":" not in row:
+            continue
+
+        left, right = row.split(":", 1)
 
         try:
-            rank = int(rank_text.strip())
-            role_id = int(role_text.strip())
-        except:
-            continue
+            out[int(left.strip())] = int(right.strip())
+        except Exception:
+            pass
 
-        result.append((rank, role_id))
+    return out
 
-    result.sort(key=lambda x: x[0])
+
+def clean(value):
+    if value is None:
+        return ""
+
+    value = str(value).strip()
+
+    if value.lower() in ("none", "null"):
+        return ""
+
+    return value
+
+
+def make_nick(saved):
+    tag = Env.tag.strip()
+
+    username = clean(saved.get("roblox_name"))
+    display = clean(saved.get("roblox_display_name"))
+
+    if display and display != username:
+        name = f"({display}) {username}"
+    else:
+        name = username
+
+    if tag:
+        nick = f"[{tag}] {name}"
+    else:
+        nick = name
+
+    return nick[:32]
+
+
+def group_role_map():
+    result = {}
+
+    for group_id, role_id in Env.roblox_group_roles:
+        result[int(group_id)] = int(role_id)
+
     return result
 
-ROBLOX_RANK_ROLES = parse_rank_roles()
 
-async def get_roblox_rank(roblox_id):
-    if not ROBLOX_MAINGROUP_ID:
-        return 0
+def ordered_group_ids():
+    return [int(group_id) for group_id, _ in Env.roblox_group_roles]
 
-    url = f"https://groups.roblox.com/v2/users/{roblox_id}/groups/roles"
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as res:
-            if res.status != 200:
-                return 0
+def get_joined_groups(user_id):
+    targets = set(group_role_map().keys())
+    joined = {}
 
-            data = await res.json()
+    try:
+        data = rows(user_id)
+    except Exception as e:
+        print("roblox group fetch failed:", e)
+        return joined
 
-    for item in data.get("data", []):
-        group = item.get("group", {})
-        role = item.get("role", {})
+    for item in data:
+        group = item.get("group") or {}
 
-        if int(group.get("id", 0)) == ROBLOX_MAINGROUP_ID:
-            return int(role.get("rank", 0))
+        try:
+            group_id = int(group.get("id", 0))
+        except Exception:
+            continue
+
+        if group_id in targets:
+            joined[group_id] = item
+
+    return joined
+
+
+def get_primary_rank(joined):
+    for group_id in ordered_group_ids():
+        item = joined.get(group_id)
+
+        if not item:
+            continue
+
+        role = item.get("role") or {}
+
+        try:
+            return int(role.get("rank") or 0)
+        except Exception:
+            return 0
 
     return 0
 
-def get_rank_role_ids(rank):
-    role_ids = []
-
-    for required_rank, role_id in ROBLOX_RANK_ROLES:
-        if rank >= required_rank:
-            role_ids.append(role_id)
-
-    return role_ids
 
 async def refresh(discord_id):
-    link = get(str(discord_id))
+    saved = pull(discord_id)
 
-    if not link:
-        return False, "연동 정보를 찾지 못했습니다."
+    if not saved:
+        return False, "연동 기록이 없습니다."
 
-    roblox_id = link.get("roblox_id")
-
-    if not roblox_id:
-        return False, "Roblox ID를 찾지 못했습니다."
-
-    guild = bot.get_guild(DISCORD_GUILD_ID)
+    guild = bot.get_guild(Env.guild_id)
 
     if not guild:
-        return False, "Discord 서버를 찾지 못했습니다."
+        return False, "서버를 찾지 못했습니다."
 
     member = guild.get_member(int(discord_id))
 
     if not member:
         try:
             member = await guild.fetch_member(int(discord_id))
-        except:
-            return False, "Discord 멤버를 찾지 못했습니다."
+        except Exception:
+            return False, "멤버를 찾지 못했습니다."
 
-    add_roles = []
+    base_role = guild.get_role(Env.role_id)
 
-    if DISCORD_ROLE_ID:
-        base_role = guild.get_role(DISCORD_ROLE_ID)
-        if base_role:
-            add_roles.append(base_role)
+    if not base_role:
+        return False, "기본 역할을 찾지 못했습니다."
 
-    rank = await get_roblox_rank(roblox_id)
-    rank_role_ids = get_rank_role_ids(rank)
-    managed_role_ids = [role_id for _, role_id in ROBLOX_RANK_ROLES]
+    roblox_id = int(saved["roblox_id"])
 
-    for role_id in rank_role_ids:
-        role = guild.get_role(role_id)
-        if role:
-            add_roles.append(role)
+    roles_by_group = group_role_map()
+    joined = get_joined_groups(roblox_id)
+
+    if not joined:
+        return False, "Roblox 그룹에 가입되어 있지 않습니다."
+
+    ranks = rank_map()
+    user_rank = get_primary_rank(joined)
+
+    all_group_role_ids = set(roles_by_group.values())
+    should_have_group_role_ids = {
+        roles_by_group[group_id]
+        for group_id in joined.keys()
+        if group_id in roles_by_group
+    }
+
+    all_rank_role_ids = set(ranks.values())
+    current_rank_role_id = ranks.get(user_rank)
+
+    try:
+        await member.edit(
+            nick=make_nick(saved),
+            reason="Roblox verify sync"
+        )
+    except Exception as e:
+        print("nickname edit failed:", e)
 
     remove_roles = []
 
-    for role_id in managed_role_ids:
-        if role_id not in rank_role_ids:
-            role = guild.get_role(role_id)
-            if role and role in member.roles:
-                remove_roles.append(role)
+    for role in member.roles:
+        if role.id in all_group_role_ids and role.id not in should_have_group_role_ids:
+            remove_roles.append(role)
 
-    if add_roles:
-        await member.add_roles(*add_roles, reason="Roblox verification rank sync")
+        if role.id in all_rank_role_ids and role.id != current_rank_role_id:
+            remove_roles.append(role)
 
     if remove_roles:
-        await member.remove_roles(*remove_roles, reason="Roblox verification rank sync")
+        try:
+            await member.remove_roles(
+                *remove_roles,
+                reason="Roblox role sync"
+            )
+        except Exception as e:
+            print("role remove failed:", e)
 
-    return True, f"인증 완료. Roblox rank: {rank}"
+    add_roles = []
+
+    if base_role not in member.roles:
+        add_roles.append(base_role)
+
+    for role_id in should_have_group_role_ids:
+        role = guild.get_role(role_id)
+
+        if role and role not in member.roles:
+            add_roles.append(role)
+
+    if current_rank_role_id:
+        rank_role = guild.get_role(current_rank_role_id)
+
+        if rank_role and rank_role not in member.roles:
+            add_roles.append(rank_role)
+
+    if add_roles:
+        try:
+            await member.add_roles(
+                *add_roles,
+                reason="Roblox verify"
+            )
+        except Exception as e:
+            print("role add failed:", e)
+
+    return True, f"{saved['roblox_name']} 계정 인증이 완료되었습니다."
