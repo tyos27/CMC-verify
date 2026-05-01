@@ -11,22 +11,50 @@ def rows(user_id):
     return r.json().get("data", [])
 
 
-def pick(user_id):
+def configured_group_ids():
+    return {group_id for group_id, _ in Env.roblox_group_roles}
+
+
+def matched(user_id):
+    ids = configured_group_ids()
+    result = []
+
     for item in rows(user_id):
-        g = item.get("group") or {}
-        if int(g.get("id", 0)) == int(Env.roblox_group_id):
-            return item
+        group = item.get("group") or {}
+
+        try:
+            group_id = int(group.get("id", 0))
+        except Exception:
+            continue
+
+        if group_id in ids:
+            result.append(item)
+
+    return result
+
+
+def pick(user_id):
+    data = matched(user_id)
+
+    if data:
+        return data[0]
+
     return None
 
 
 def inside(user_id):
-    return pick(user_id) is not None
+    return len(matched(user_id)) > 0
 
 
 def rank(user_id):
     item = pick(user_id)
+
     if not item:
         return 0
 
     role = item.get("role") or {}
-    return int(role.get("rank") or 0)
+
+    try:
+        return int(role.get("rank") or 0)
+    except Exception:
+        return 0
