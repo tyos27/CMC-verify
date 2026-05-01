@@ -1,67 +1,106 @@
-from datetime import datetime, timedelta, timezone
-from store.links import db
+import base64
+import hashlib
+import hmac
+import json
+import secrets
+import time
+
+from core.env import Env
 
 
-def now_utc():
-    return datetime.now(timezone.utc)
+TTL_SECONDS = 600
 
 
-def cleanup():
-    try:
-        db.table("oauth_states").delete().lt(
-            "expires_at",
-            now_utc().isoformat()
-        ).execute()
-    except Exception as e:
-        print("oauth state cleanup failed:", e)
+def b64e(data):
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
 
-def hold(state, discord_id, channel_id, message_id, discord_name=None):
-    cleanup()
+def b64d(data):
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode((data + padding).encode())
 
-    expires_at = now_utc() + timedelta(minutes=10)
 
-    row = {
-        "state": str(state),
-        "discord_id": str(discord_id),
-        "channel_id": str(channel_id) if channel_id is not None else None,
-        "message_id": str(message_id) if message_id is not None else None,
-        "discord_name": str(discord_name) if discord_name is not None else None,
-        "expires_at": expires_at.isoformat()
+def secret_key():
+    raw = f"{Env.game_api_key}:{Env.roblox_client_secret}"
+    return raw.encode()
+
+
+def sign(body):
+    digest = hmac.new(
+        secret_key(),
+        body.encode(),
+        hashlib.sha256
+    ).digest()
+
+    return b64e(digest)
+
+
+def make_state(discord_id, channel_id=None, message_id=None, discord_name=None):
+    payload = {
+        "d": str(discord_id),
+        "c": str(channel_id) if channel_id is not None else "",
+        "m": str(message_id) if message_id is not None else "",
+        "n": str(discord_name) if discord_name is not None else "",
+        "e": int(time.time()) + TTL_SECONDS,
+        "x": secrets.token_urlsafe(8)
     }
 
-    db.table("oauth_states").upsert(row).execute()
+    body = b64e(
+        json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False
+        ).encode()
+    )
 
-    print("oauth state saved:", state, discord_id)
+    token = body + "." + sign(body)
 
+    print("oauth state made:", token, discord_id)
 
-def put(state, discord_id, channel_id, message_id, discord_name=None):
-    hold(state, discord_id, channel_id, message_id, discord_name)
+    return token
 
 
 def take(state):
-    cleanup()
+    try:
+        raw = str(state or "")
 
-    r = db.table("oauth_states").select("*").eq(
-        "state",
-        str(state)
-    ).execute()
+        if "." not in raw:
+            print("oauth state invalid: no separator")
+            return None
 
-    print("oauth state take:", state, r.data)
+        body, sig = raw.rsplit(".", 1)
 
-    if not r.data:
+        expected = sign(body)
+
+        if not hmac.compare_digest(sig, expected):
+            print("oauth state invalid: bad signature")
+            return None
+
+        payload = json.loads(b64d(body).decode())
+
+        if int(payload.get("e", 0)) < int(time.time()):
+            print("oauth state invalid: expired")
+            return None
+
+        result = {
+            "discord_id": payload.get("d"),
+            "channel_id": payload.get("c") or None,
+            "message_id": payload.get("m") or None,
+            "discord_name": payload.get("n") or None
+        }
+
+        print("oauth state take ok:", result)
+
+        return result
+
+    except Exception as e:
+        print("oauth state take failed:", e)
         return None
 
-    row = r.data[0]
 
-    db.table("oauth_states").delete().eq(
-        "state",
-        str(state)
-    ).execute()
+def hold(state, discord_id, channel_id, message_id, discord_name=None):
+    print("oauth state hold ignored: stateless mode")
 
-    return {
-        "discord_id": row["discord_id"],
-        "channel_id": row.get("channel_id"),
-        "message_id": row.get("message_id"),
-        "discord_name": row.get("discord_name")
-    }
+
+def put(state, discord_id, channel_id, message_id, discord_name=None):
+    print("oauth state put ignored: stateless mode")
