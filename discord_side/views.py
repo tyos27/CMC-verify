@@ -134,7 +134,7 @@ class StartButton(Button):
         await interaction.response.edit_message(
             embed=panel(
                 "✅ 인증 방식 선택",
-                "**1. OAuth 인증**\nRoblox 공식 로그인 페이지를 통해 바로 인증합니다.\n\n"
+                "**1. OAuth 인증**\nRoblox 공식 로그인 페이지를 통해 바로 인증합니다.\n"
                 "**2. 게임 코드 인증**\nRoblox 계정 닉네임을 입력한 뒤 인증용 게임에 접속해서 코드를 확인합니다.",
                 0x57f287
             ),
