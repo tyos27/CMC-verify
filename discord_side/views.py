@@ -1,7 +1,6 @@
-import secrets
 import discord
 from discord.ui import View, Button, Modal, TextInput
-from core.pending import put as hold
+from core.pending import make_state
 from roblox.auth import start_link
 from store.links import pull, put
 from store.game_codes import create_discord_pending, consume_code
@@ -65,8 +64,11 @@ class TimedView(View):
 
 class UrlButton(Button):
     def __init__(self, owner_id, channel_id=None, message_id=None):
-        state = secrets.token_urlsafe(32)
-        hold(state, owner_id, channel_id, message_id)
+        state = make_state(
+            owner_id,
+            channel_id,
+            message_id
+        )
 
         super().__init__(
             label="인증하기",
@@ -260,7 +262,7 @@ class RobloxNameModal(Modal):
                 f"인증하려는 Roblox 계정: `{roblox_name}`\n\n"
                 "이제 인증용 [Roblox 게임](https://www.roblox.com/games/126742579358323/JS-Authentication-Center-JS)에 해당 계정으로 접속하세요.\n"
                 "게임 화면에 표시되는 6자리 코드를 확인한 뒤 아래 **코드 입력** 버튼을 눌러 입력해주세요!\n\n"
-                "코드는 2분 동안만 유효해요!",
+                "코드는 10분 동안만 유효해요!",
                 0x57f287
             ),
             view=v
@@ -413,6 +415,7 @@ class GameCodeModal(Modal):
             view=None
         )
 
+
 class ConfirmView(TimedView):
     def __init__(self, owner_id):
         super().__init__(owner_id)
@@ -444,31 +447,17 @@ class YesButton(Button):
 
         await interaction.response.defer()
 
-        try:
-            await interaction.message.edit(
-                embed=panel(
-                    "⏳ 인증 처리 중",
-                    "기존 인증 정보를 확인하고 역할을 동기화하는 중입니다...",
-                    0x5865f2
-                ),
-                view=None
-            )
-        except Exception as e:
-            print("processing message edit failed:", e)
-
         ok, msg = await refresh(self.owner_id)
 
-        try:
-            await interaction.message.edit(
-                embed=panel(
-                    "✅ 인증 완료" if ok else "❌ 인증 실패",
-                    msg,
-                    0x57f287 if ok else 0xed4245
-                ),
-                view=None
-            )
-        except Exception as e:
-            print("final message edit failed:", e)
+        await interaction.message.edit(
+            embed=panel(
+                "✅ 인증 완료",
+                msg,
+                0x57f287 if ok else 0xed4245
+            ),
+            view=None
+        )
+
 
 class NoButton(Button):
     def __init__(self, owner_id):
