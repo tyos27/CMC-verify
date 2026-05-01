@@ -16,7 +16,7 @@ def pick(name, cast=str, default=None):
     return cast(value)
 
 
-def parse_roblox_group_roles():
+def parse_optional_group_roles():
     items = []
 
     for key, value in os.environ.items():
@@ -65,14 +65,12 @@ class Env:
 
     roblox_client_id = pick("ROBLOX_CLIENT_ID")
     roblox_client_secret = pick("ROBLOX_CLIENT_SECRET")
-    roblox_redirect = site_url + "/oauth/callback"
+    roblox_redirect = pick("ROBLOX_REDIRECT_URI", str, site_url + "/oauth/callback")
 
-    roblox_group_roles = parse_roblox_group_roles()
+    roblox_maingroup_id = pick("ROBLOX_MAINGROUP_ID", int)
+    roblox_group_id = roblox_maingroup_id
 
-    if roblox_group_roles:
-        roblox_group_id = roblox_group_roles[0][0]
-    else:
-        roblox_group_id = pick("ROBLOX_GROUP_ID", int)
+    roblox_group_roles = parse_optional_group_roles()
 
     web_host = pick("WEB_HOST", str, "0.0.0.0")
     web_port = pick("PORT", int, pick("WEB_PORT", int, 8000))
