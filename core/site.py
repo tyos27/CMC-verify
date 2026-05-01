@@ -26,8 +26,7 @@ hits = {}
 bad_hits = {}
 oauth_starts = {}
 
-STATE_RE = re.compile(r"^[A-Za-z0-9_\-\.]{20,1200}$")
-CODE_RE = re.compile(r"^[A-Za-z0-9_\-\.]{10,800}$")
+STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{20,200}$")
 USER_ID_RE = re.compile(r"^[0-9]{1,30}$")
 
 
@@ -58,26 +57,45 @@ def sweep(bucket, ip, seconds):
 
 def limited(ip):
     normal = sweep(hits, ip, 60)
-    return len(normal) > 20
+    return len(normal) > 40
 
 
 def bad_limited(ip):
     bad = sweep(bad_hits, ip, 60)
-    return len(bad) > 8
+    return len(bad) > 15
 
 
 def bad(ip):
     sweep(bad_hits, ip, 60)
 
 
-def valid_pair(code, state):
-    if not code or not state:
+def valid_state(state):
+    if not state:
+        print("oauth invalid state: missing")
+        return False
+
+    state = str(state)
+
+    if len(state) < 20 or len(state) > 200:
+        print("oauth invalid state length:", len(state))
         return False
 
     if not STATE_RE.match(state):
+        print("oauth invalid state chars:", state)
         return False
 
-    if not CODE_RE.match(code):
+    return True
+
+
+def valid_code(code):
+    if not code:
+        print("oauth invalid code: missing")
+        return False
+
+    code = str(code)
+
+    if len(code) < 5 or len(code) > 2000:
+        print("oauth invalid code length:", len(code))
         return False
 
     return True
@@ -92,7 +110,7 @@ def start_blocked(state):
 
     last = oauth_starts.get(state)
 
-    if last and now - last < 15:
+    if last and now - last < 3:
         return True
 
     oauth_starts[state] = now
@@ -145,17 +163,19 @@ async def oauth_start(req: Request):
 
     state = req.query_params.get("state")
 
+    print("oauth start received state:", state)
+    print("oauth start SITE_URL:", Env.site_url)
+    print("oauth start redirect:", Env.roblox_redirect)
+
     if not state:
         return html("""
         <h2>JAD Verify</h2>
         <p>This is the Roblox OAuth entry point for JAD Verify.</p>
         <p>This service is used to link a Roblox account with a Discord account for verification purposes.</p>
         <p>To start verification, please return to the Discord server and press the verification button.</p>
-        <p>Join our Discord: <a href="https://discord.gg/jangaedang">https://discord.gg/jangaedang</a></p>
-        <p>If you were sent here during app review, this entry link is active and reachable.</p>
         """, 200)
 
-    if not STATE_RE.match(state):
+    if not valid_state(state):
         bad(ip)
         return html("잘못된 인증 요청입니다.", 400)
 
@@ -178,7 +198,14 @@ async def callback(req: Request):
     code = req.query_params.get("code")
     state = req.query_params.get("state")
 
-    if not valid_pair(code, state):
+    print("oauth callback received state:", state)
+    print("oauth callback code exists:", bool(code))
+
+    if not valid_state(state):
+        bad(ip)
+        return html("잘못된 인증 요청입니다.", 400)
+
+    if not valid_code(code):
         bad(ip)
         return html("잘못된 요청입니다.", 400)
 
@@ -319,31 +346,10 @@ async def game_session(req: Request):
 async def privacy():
     return html("""
     <h2>Privacy Policy</h2>
-
     <p>JAD Verify is a Discord account verification service that uses Roblox OAuth and Roblox game code verification.</p>
-
-    <h3>Information We Use</h3>
-    <p>We may receive your Roblox user ID, Roblox username, and Roblox display name through Roblox OAuth or the Roblox verification game.</p>
-    <p>We may store your Discord user ID together with your Roblox account information to complete verification.</p>
-
-    <h3>How We Use Information</h3>
-    <p>The information is used only to verify that a Discord user owns or controls a Roblox account.</p>
-    <p>The information may also be used to check Roblox group membership and assign Discord roles.</p>
-
-    <h3>Information We Do Not Collect</h3>
-    <p>We do not collect Roblox passwords.</p>
-    <p>We do not collect Discord passwords.</p>
-    <p>We do not request or store payment information.</p>
-
-    <h3>Data Sharing</h3>
-    <p>We do not sell or share user data with third parties.</p>
-    <p>Data is only used for the verification system.</p>
-
-    <h3>Data Removal</h3>
-    <p>If you want your verification data removed, contact the server administrator.</p>
-
-    <h3>Contact</h3>
-    <p>For questions about this service, contact the administrator of the Discord server using this verification system.</p>
+    <p>We may receive your Roblox user ID, Roblox username, Roblox display name, and Discord user ID for verification.</p>
+    <p>We do not collect Roblox passwords, Discord passwords, or payment information.</p>
+    <p>Data is used only for verification, Roblox group checks, and Discord role assignment.</p>
     """, 200)
 
 
@@ -351,27 +357,7 @@ async def privacy():
 async def terms():
     return html("""
     <h2>Terms of Service</h2>
-
     <p>JAD Verify is provided for Discord account verification using Roblox OAuth and Roblox game code verification.</p>
-
-    <h3>Use of Service</h3>
-    <p>By using this service, you agree to connect your Roblox account with your Discord account for verification purposes.</p>
     <p>You must only verify an account that you own or are allowed to use.</p>
-
-    <h3>Purpose</h3>
-    <p>This service may use Roblox account information to confirm your identity, check Roblox group membership, and assign Discord roles.</p>
-
-    <h3>Limitations</h3>
-    <p>This service is provided as-is without any guarantee of availability or uninterrupted operation.</p>
-    <p>Verification may fail if Roblox OAuth, Discord, the hosting provider, or related services are unavailable.</p>
-
-    <h3>Misuse</h3>
-    <p>You may not abuse, spam, exploit, or attempt to bypass this verification system.</p>
-    <p>Access may be denied if misuse is detected.</p>
-
-    <h3>Changes</h3>
-    <p>These terms may be updated when needed.</p>
-
-    <h3>Contact</h3>
-    <p>For questions about these terms, contact the administrator of the Discord server using this verification system.</p>
+    <p>This service is provided as-is without guarantee of uninterrupted availability.</p>
     """, 200)
