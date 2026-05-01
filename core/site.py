@@ -165,6 +165,7 @@ async def oauth_start(req: Request):
 
     print("oauth start received state:", state)
     print("oauth start SITE_URL:", Env.site_url)
+    print("oauth start ROBLOX_REDIRECT_URI:", Env.roblox_redirect)
 
     if not state:
         return html("""
@@ -180,8 +181,15 @@ async def oauth_start(req: Request):
     if start_blocked(state):
         return html("이미 인증 페이지로 이동했습니다. 잠시 후 다시 시도해주세요.", 429)
 
-    return RedirectResponse(link(state), status_code=302)
+    try:
+        url = link(state)
+        print("oauth start redirecting to:", url)
+        return RedirectResponse(url, status_code=302)
+    except Exception as e:
+        print("oauth start failed:", repr(e))
+        return html("OAuth 시작 처리 중 오류가 발생했습니다. Railway 로그를 확인해주세요.", 500)
 
+    return RedirectResponse(link(state), status_code=302)
 
 @app.get("/oauth/callback")
 async def callback(req: Request):
