@@ -7,7 +7,9 @@ def rows(user_id):
         f"https://groups.roblox.com/v2/users/{user_id}/groups/roles",
         timeout=15
     )
+
     r.raise_for_status()
+
     return r.json().get("data", [])
 
 
