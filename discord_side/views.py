@@ -1,12 +1,14 @@
+import secrets
 import discord
 from discord.ui import View, Button, Modal, TextInput
-from core.pending import make_state
+from core.pending import put as hold
 from roblox.auth import start_link
 from store.links import pull, put
 from store.game_codes import create_discord_pending, consume_code
 from discord_side.roles import refresh
 from roblox.group import inside
 from datetime import datetime
+
 
 def stamp():
     now = datetime.now()
@@ -63,16 +65,22 @@ class TimedView(View):
 
 class UrlButton(Button):
     def __init__(self, owner_id, channel_id=None, message_id=None):
-        state = make_state(
-            owner_id,
-            channel_id,
-            message_id
-        )
+        state = secrets.token_urlsafe(32)
+        hold(state, owner_id, channel_id, message_id)
 
         super().__init__(
             label="인증하기",
             style=discord.ButtonStyle.link,
             url=start_link(state)
+        )
+
+
+class GameLinkButton(Button):
+    def __init__(self):
+        super().__init__(
+            label="인증 게임 바로가기",
+            style=discord.ButtonStyle.link,
+            url="https://www.roblox.com/games/126742579358323/JS-Authentication-Center-JS"
         )
 
 
@@ -126,7 +134,7 @@ class StartButton(Button):
         await interaction.response.edit_message(
             embed=panel(
                 "✅ 인증 방식 선택",
-                "**1. OAuth 인증**\nRoblox 로그인 페이지를 통해 바로 인증합니다.\n"
+                "**1. OAuth 인증**\nRoblox 공식 로그인 페이지를 통해 바로 인증합니다.\n\n"
                 "**2. 게임 코드 인증**\nRoblox 계정 닉네임을 입력한 뒤 인증용 게임에 접속해서 코드를 확인합니다.",
                 0x57f287
             ),
@@ -253,6 +261,7 @@ class RobloxNameModal(Modal):
         )
 
         v = TimedView(self.owner_id)
+        v.add_item(GameLinkButton())
         v.add_item(EnterCodeButton(self.owner_id))
 
         await self.target_message.edit(
@@ -261,7 +270,7 @@ class RobloxNameModal(Modal):
                 f"인증하려는 Roblox 계정: `{roblox_name}`\n\n"
                 "이제 인증용 [Roblox 게임](https://www.roblox.com/games/126742579358323/JS-Authentication-Center-JS)에 해당 계정으로 접속하세요.\n"
                 "게임 화면에 표시되는 6자리 코드를 확인한 뒤 아래 **코드 입력** 버튼을 눌러 입력해주세요!\n\n"
-                "코드는 10분 동안만 유효해요!",
+                "코드는 2분 동안만 유효해요!",
                 0x57f287
             ),
             view=v
@@ -403,6 +412,12 @@ class GameCodeModal(Modal):
                 ),
                 view=None
             )
+
+            try:
+                await interaction.delete_original_response()
+            except Exception:
+                pass
+
             return
 
         await self.target_message.edit(
@@ -413,6 +428,11 @@ class GameCodeModal(Modal):
             ),
             view=None
         )
+
+        try:
+            await interaction.delete_original_response()
+        except Exception:
+            pass
 
 
 class ConfirmView(TimedView):
@@ -444,11 +464,9 @@ class YesButton(Button):
 
         self.view.close()
 
-        await interaction.response.defer()
-
         ok, msg = await refresh(self.owner_id)
 
-        await interaction.message.edit(
+        await interaction.response.edit_message(
             embed=panel(
                 "✅ 인증 완료",
                 msg,
