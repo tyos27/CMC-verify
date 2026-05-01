@@ -7,55 +7,35 @@ def rows(user_id):
         f"https://groups.roblox.com/v2/users/{user_id}/groups/roles",
         timeout=15
     )
-
     r.raise_for_status()
-
     return r.json().get("data", [])
 
 
 def configured_group_ids():
-    return [group_id for group_id, _ in Env.roblox_group_roles]
+    if getattr(Env, "roblox_group_roles", None):
+        return [group_id for group_id, _ in Env.roblox_group_roles]
 
-
-def matched(user_id):
-    ids = set(configured_group_ids())
-    result = []
-
-    for item in rows(user_id):
-        group = item.get("group") or {}
-
-        try:
-            group_id = int(group.get("id", 0))
-        except Exception:
-            continue
-
-        if group_id in ids:
-            result.append(item)
-
-    return result
+    return [Env.roblox_group_id]
 
 
 def pick(user_id):
-    data = matched(user_id)
+    group_ids = configured_group_ids()
 
-    if not data:
-        return None
+    data = rows(user_id)
 
-    order = configured_group_ids()
-
-    for group_id in order:
+    for target_id in group_ids:
         for item in data:
-            group = item.get("group") or {}
+            g = item.get("group") or {}
 
             try:
-                current_id = int(group.get("id", 0))
+                group_id = int(g.get("id", 0))
             except Exception:
                 continue
 
-            if current_id == group_id:
+            if group_id == int(target_id):
                 return item
 
-    return data[0]
+    return None
 
 
 def inside(user_id):
