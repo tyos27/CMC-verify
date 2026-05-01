@@ -39,12 +39,9 @@ def parse_roblox_group_roles():
         items.append((key, group_id, role_id))
 
     def sort_key(item):
-        key = item[0]
-        suffix = key.replace("ROBLOX_GROUP_ID", "")
-
+        suffix = item[0].replace("ROBLOX_GROUP_ID", "")
         if suffix.isdigit():
             return int(suffix)
-
         return 999999
 
     items.sort(key=sort_key)
@@ -77,5 +74,6 @@ class Env:
     web_port = pick("WEB_PORT", int, 8000)
 
     tag = pick("DISCORD_GROUP_TAG", str, "")
+    rank_roles = pick("ROBLOX_RANK_ROLES", str, "")
 
     game_api_key = pick("GAME_API_KEY")
