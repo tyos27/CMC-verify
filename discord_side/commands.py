@@ -16,7 +16,6 @@ async def on_ready():
 
     bot.done_sync = True
 
-
     guild = discord.Object(id=Env.guild_id)
 
     bot.tree.copy_global_to(guild=guild)
