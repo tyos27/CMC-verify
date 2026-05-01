@@ -26,7 +26,7 @@ hits = {}
 bad_hits = {}
 oauth_starts = {}
 
-STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{20,200}$")
+STATE_RE = re.compile(r"^[A-Za-z0-9_\-\.]{20,800}$")
 CODE_RE = re.compile(r"^[A-Za-z0-9_\-\.]{10,800}$")
 USER_ID_RE = re.compile(r"^[0-9]{1,30}$")
 
