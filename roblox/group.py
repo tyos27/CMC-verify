@@ -12,11 +12,11 @@ def rows(user_id):
 
 
 def configured_group_ids():
-    return {group_id for group_id, _ in Env.roblox_group_roles}
+    return [group_id for group_id, _ in Env.roblox_group_roles]
 
 
 def matched(user_id):
-    ids = configured_group_ids()
+    ids = set(configured_group_ids())
     result = []
 
     for item in rows(user_id):
@@ -36,14 +36,28 @@ def matched(user_id):
 def pick(user_id):
     data = matched(user_id)
 
-    if data:
-        return data[0]
+    if not data:
+        return None
 
-    return None
+    order = configured_group_ids()
+
+    for group_id in order:
+        for item in data:
+            group = item.get("group") or {}
+
+            try:
+                current_id = int(group.get("id", 0))
+            except Exception:
+                continue
+
+            if current_id == group_id:
+                return item
+
+    return data[0]
 
 
 def inside(user_id):
-    return len(matched(user_id)) > 0
+    return pick(user_id) is not None
 
 
 def rank(user_id):
