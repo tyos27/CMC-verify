@@ -14,6 +14,7 @@ def link(state):
     redirect_uri = callback_url()
 
     print("oauth authorize redirect_uri:", redirect_uri)
+    print("oauth authorize state:", state)
 
     return base + "/authorize?" + urlencode({
         "client_id": Env.roblox_client_id,
@@ -47,6 +48,9 @@ def trade(code):
         "client_secret": Env.roblox_client_secret,
     }, timeout=15)
 
+    if r.status_code >= 400:
+        print("oauth token failed:", r.status_code, r.text)
+
     r.raise_for_status()
 
     return r.json()
@@ -56,6 +60,9 @@ def me(access_token):
     r = requests.get(base + "/userinfo", headers={
         "Authorization": f"Bearer {access_token}"
     }, timeout=15)
+
+    if r.status_code >= 400:
+        print("oauth userinfo failed:", r.status_code, r.text)
 
     r.raise_for_status()
 
