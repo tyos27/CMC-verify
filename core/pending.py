@@ -7,10 +7,13 @@ def now_utc():
 
 
 def cleanup():
-    db.table("oauth_states").delete().lt(
-        "expires_at",
-        now_utc().isoformat()
-    ).execute()
+    try:
+        db.table("oauth_states").delete().lt(
+            "expires_at",
+            now_utc().isoformat()
+        ).execute()
+    except Exception as e:
+        print("oauth state cleanup failed:", e)
 
 
 def hold(state, discord_id, channel_id, message_id, discord_name=None):
@@ -18,14 +21,16 @@ def hold(state, discord_id, channel_id, message_id, discord_name=None):
 
     expires_at = now_utc() + timedelta(minutes=10)
 
-    db.table("oauth_states").upsert({
+    row = {
         "state": str(state),
         "discord_id": str(discord_id),
         "channel_id": str(channel_id) if channel_id is not None else None,
         "message_id": str(message_id) if message_id is not None else None,
         "discord_name": str(discord_name) if discord_name is not None else None,
         "expires_at": expires_at.isoformat()
-    }).execute()
+    }
+
+    db.table("oauth_states").upsert(row).execute()
 
     print("oauth state saved:", state, discord_id)
 
