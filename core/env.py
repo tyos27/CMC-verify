@@ -87,8 +87,8 @@ class Env:
 
     roblox_group_roles = parse_optional_group_roles()
 
-    web_host = pick("WEB_HOST", str, "0.0.0.0")
-    web_port = pick("PORT", int, pick("WEB_PORT", int, 8000))
+    web_host = "0.0.0.0"
+    web_port = int(os.getenv("PORT") or os.getenv("WEB_PORT") or "8000")
 
     tag = pick("DISCORD_GROUP_TAG", str, "")
     rank_roles = pick("ROBLOX_RANK_ROLES", str, "")
