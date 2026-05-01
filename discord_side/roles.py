@@ -4,7 +4,7 @@ from store.links import pull
 from roblox.group import rows
 
 
-def rank_map():
+def parse_rank_roles():
     out = {}
 
     raw = Env.rank_roles
@@ -24,7 +24,7 @@ def rank_map():
             rank = int(left.strip())
             role_id = int(right.strip())
         except Exception as e:
-            print("rank map parse failed:", row, e)
+            print("rank role parse failed:", row, e)
             continue
 
         if rank not in out:
@@ -36,7 +36,7 @@ def rank_map():
     return out
 
 
-def rank_tag_map():
+def parse_rank_tags():
     out = {}
 
     raw = Env.rank_tags
@@ -83,32 +83,6 @@ def clean(value):
     return value
 
 
-def make_nick(saved, user_rank):
-    username = clean(saved.get("roblox_name"))
-    display = clean(saved.get("roblox_display_name"))
-
-    if display and display != username:
-        name = f"({display}) {username}"
-    else:
-        name = username
-
-    tags_by_rank = rank_tag_map()
-    tags = tags_by_rank.get(user_rank, [])
-
-    if tags:
-        prefix = "".join(f"[{tag}]" for tag in tags)
-        nick = f"{prefix} {name}"
-    else:
-        default_tag = Env.tag.strip()
-
-        if default_tag:
-            nick = f"[{default_tag}] {name}"
-        else:
-            nick = name
-
-    return nick[:32]
-
-
 def group_role_map():
     result = {}
 
@@ -126,13 +100,13 @@ def get_joined_groups(user_id):
     targets = set(group_role_map().keys())
     joined = {}
 
+    print("configured roblox groups:", list(targets))
+
     try:
         data = rows(user_id)
     except Exception as e:
         print("roblox group fetch failed:", e)
         return joined
-
-    print("configured roblox groups:", list(targets))
 
     for item in data:
         group = item.get("group") or {}
@@ -140,7 +114,7 @@ def get_joined_groups(user_id):
 
         try:
             group_id = int(group.get("id", 0))
-            rank = int(role.get("rank", 0))
+            rank = int(role.get("rank") or 0)
         except Exception:
             continue
 
@@ -171,35 +145,69 @@ def get_primary_rank(joined):
     return 0
 
 
+def make_nick(saved, user_rank):
+    username = clean(saved.get("roblox_name"))
+    display = clean(saved.get("roblox_display_name"))
+
+    if display and display != username:
+        name = f"({display}) {username}"
+    else:
+        name = username
+
+    tags_by_rank = parse_rank_tags()
+    tags = tags_by_rank.get(user_rank, [])
+
+    if tags:
+        prefix = "".join(f"[{tag}]" for tag in tags)
+        nick = f"{prefix} {name}"
+    else:
+        default_tag = Env.tag.strip()
+
+        if default_tag:
+            nick = f"[{default_tag}] {name}"
+        else:
+            nick = name
+
+    return nick[:32]
+
+
 async def refresh(discord_id):
     print("refresh start:", discord_id)
 
     saved = pull(discord_id)
 
     if not saved:
-        print("refresh failed: no saved verify")
+        print("refresh stop: no verify data")
         return False, "연동 기록이 없습니다."
+
+    print("refresh verify data:", saved)
 
     guild = bot.get_guild(Env.guild_id)
 
     if not guild:
-        print("refresh failed: guild not found", Env.guild_id)
-        return False, "서버를 찾지 못했습니다."
+        print("refresh stop: guild not found:", Env.guild_id)
+        return False, "Discord 서버를 찾지 못했습니다."
 
-    member = guild.get_member(int(discord_id))
+    print("guild found:", guild.name, guild.id)
 
-    if not member:
-        try:
+    try:
+        member = guild.get_member(int(discord_id))
+
+        if not member:
             member = await guild.fetch_member(int(discord_id))
-        except Exception as e:
-            print("refresh failed: member not found", discord_id, e)
-            return False, "멤버를 찾지 못했습니다."
+    except Exception as e:
+        print("refresh stop: member not found:", discord_id, e)
+        return False, "Discord 멤버를 찾지 못했습니다."
+
+    print("member found:", member, member.id)
 
     base_role = guild.get_role(Env.role_id)
 
     if not base_role:
-        print("refresh failed: base role not found", Env.role_id)
-        return False, "기본 역할을 찾지 못했습니다."
+        print("refresh stop: base role not found:", Env.role_id)
+        return False, "기본 인증 역할을 찾지 못했습니다."
+
+    print("base role found:", base_role.name, base_role.id)
 
     roblox_id = int(saved["roblox_id"])
 
@@ -207,15 +215,17 @@ async def refresh(discord_id):
     joined = get_joined_groups(roblox_id)
 
     if not joined:
-        print("refresh failed: not in configured roblox groups")
+        print("refresh stop: user is not in configured roblox groups")
         return False, "Roblox 그룹에 가입되어 있지 않습니다."
 
-    ranks = rank_map()
     user_rank = get_primary_rank(joined)
+    rank_roles = parse_rank_roles()
+    rank_tags = parse_rank_tags()
 
-    print("primary roblox rank:", user_rank)
-    print("rank map:", ranks)
-    print("rank tag map:", rank_tag_map())
+    print("roblox id:", roblox_id)
+    print("primary rank:", user_rank)
+    print("rank roles config:", rank_roles)
+    print("rank tags config:", rank_tags)
 
     all_group_role_ids = set(roles_by_group.values())
 
@@ -227,22 +237,24 @@ async def refresh(discord_id):
 
     all_rank_role_ids = set()
 
-    for role_ids in ranks.values():
+    for role_ids in rank_roles.values():
         for role_id in role_ids:
             all_rank_role_ids.add(role_id)
 
-    should_have_rank_role_ids = set(ranks.get(user_rank, []))
+    should_have_rank_role_ids = set(rank_roles.get(user_rank, []))
 
-    print("should have group roles:", should_have_group_role_ids)
-    print("should have rank roles:", should_have_rank_role_ids)
+    print("should group role ids:", list(should_have_group_role_ids))
+    print("should rank role ids:", list(should_have_rank_role_ids))
+
+    nick = make_nick(saved, user_rank)
 
     try:
         await member.edit(
-            nick=make_nick(saved, user_rank),
+            nick=nick,
             reason="Roblox verify sync"
         )
 
-        print("nickname updated")
+        print("nickname updated:", nick)
     except Exception as e:
         print("nickname edit failed:", e)
 
@@ -259,10 +271,10 @@ async def refresh(discord_id):
         try:
             await member.remove_roles(
                 *remove_roles,
-                reason="Roblox role sync"
+                reason="Roblox verify role sync"
             )
 
-            print("removed roles:", [role.id for role in remove_roles])
+            print("removed roles:", [(role.name, role.id) for role in remove_roles])
         except Exception as e:
             print("role remove failed:", e)
 
@@ -274,20 +286,22 @@ async def refresh(discord_id):
     for role_id in should_have_group_role_ids:
         role = guild.get_role(role_id)
 
-        if role and role not in member.roles:
-            add_roles.append(role)
-
         if not role:
-            print("group discord role not found:", role_id)
+            print("group role missing in discord server:", role_id)
+            continue
+
+        if role not in member.roles:
+            add_roles.append(role)
 
     for role_id in should_have_rank_role_ids:
         role = guild.get_role(role_id)
 
-        if role and role not in member.roles:
-            add_roles.append(role)
-
         if not role:
-            print("rank discord role not found:", role_id)
+            print("rank role missing in discord server:", role_id)
+            continue
+
+        if role not in member.roles:
+            add_roles.append(role)
 
     unique_add_roles = []
     seen = set()
@@ -300,13 +314,15 @@ async def refresh(discord_id):
         unique_add_roles.append(role)
 
     if unique_add_roles:
+        print("trying to add roles:", [(role.name, role.id) for role in unique_add_roles])
+
         try:
             await member.add_roles(
                 *unique_add_roles,
                 reason="Roblox verify"
             )
 
-            print("added roles:", [role.id for role in unique_add_roles])
+            print("added roles:", [(role.name, role.id) for role in unique_add_roles])
         except Exception as e:
             print("role add failed:", e)
             return False, "역할 지급에 실패했습니다. 봇 역할 위치나 권한을 확인해주세요."
