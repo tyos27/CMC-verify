@@ -7,7 +7,9 @@ def rows(user_id):
         f"https://groups.roblox.com/v2/users/{user_id}/groups/roles",
         timeout=15
     )
+
     r.raise_for_status()
+
     return r.json().get("data", [])
 
 
@@ -19,11 +21,9 @@ def configured_group_ids():
 
 
 def pick(user_id):
-    group_ids = configured_group_ids()
-
     data = rows(user_id)
 
-    for target_id in group_ids:
+    for target_id in configured_group_ids():
         for item in data:
             g = item.get("group") or {}
 
