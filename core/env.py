@@ -6,14 +6,17 @@ load_dotenv()
 
 def pick(name, cast=str, default=None):
     value = os.getenv(name)
+
     if value is None or value == "":
         if default is not None:
             return default
+
         raise RuntimeError(f"missing env: {name}")
+
     return cast(value)
 
 
-def parse_group_roles():
+def parse_roblox_group_roles():
     items = []
 
     for key, value in os.environ.items():
@@ -28,11 +31,11 @@ def parse_group_roles():
         if ":" not in value:
             continue
 
-        group_id, role_id = value.split(":", 1)
+        left, right = value.split(":", 1)
 
         try:
-            group_id = int(group_id.strip())
-            role_id = int(role_id.strip())
+            group_id = int(left.strip())
+            discord_role_id = int(right.strip())
         except Exception:
             continue
 
@@ -43,11 +46,11 @@ def parse_group_roles():
         else:
             order = 999999
 
-        items.append((order, group_id, role_id))
+        items.append((order, group_id, discord_role_id))
 
     items.sort(key=lambda x: x[0])
 
-    return [(group_id, role_id) for _, group_id, role_id in items]
+    return [(group_id, discord_role_id) for _, group_id, discord_role_id in items]
 
 
 class Env:
@@ -62,7 +65,7 @@ class Env:
     roblox_client_secret = pick("ROBLOX_CLIENT_SECRET")
     roblox_redirect = pick("ROBLOX_REDIRECT_URI")
 
-    roblox_group_roles = parse_group_roles()
+    roblox_group_roles = parse_roblox_group_roles()
 
     if roblox_group_roles:
         roblox_group_id = roblox_group_roles[0][0]
