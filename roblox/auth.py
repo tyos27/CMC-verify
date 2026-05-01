@@ -7,22 +7,28 @@ base = "https://apis.roblox.com/oauth/v1"
 
 
 def callback_url():
-    return Env.site_url.rstrip("/") + "/oauth/callback"
+    return Env.roblox_redirect.rstrip("/")
 
 
 def link(state):
     redirect_uri = callback_url()
 
+    print("oauth authorize build start")
+    print("oauth authorize client id exists:", bool(Env.roblox_client_id))
     print("oauth authorize redirect_uri:", redirect_uri)
     print("oauth authorize state:", state)
 
-    return base + "/authorize?" + urlencode({
+    url = base + "/authorize?" + urlencode({
         "client_id": Env.roblox_client_id,
         "response_type": "code",
         "redirect_uri": redirect_uri,
         "scope": "openid profile",
         "state": state,
     })
+
+    print("oauth authorize url:", url)
+
+    return url
 
 
 def start_link(state):
