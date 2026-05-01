@@ -85,3 +85,4 @@ class Env:
     rank_staff_roles = pick("RANK_STAFF_ROLES", str, "")
 
     game_api_key = pick("GAME_API_KEY")
+    sync_commands = pick("SYNC_COMMANDS", str, "0")
