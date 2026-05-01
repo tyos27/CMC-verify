@@ -13,29 +13,23 @@ def rows(user_id):
     return r.json().get("data", [])
 
 
-def configured_group_ids():
-    if getattr(Env, "roblox_group_roles", None):
-        return [group_id for group_id, _ in Env.roblox_group_roles]
+def find_group(user_id, target_group_id):
+    for item in rows(user_id):
+        group = item.get("group") or {}
 
-    return [Env.roblox_group_id]
+        try:
+            group_id = int(group.get("id", 0))
+        except Exception:
+            continue
+
+        if group_id == int(target_group_id):
+            return item
+
+    return None
 
 
 def pick(user_id):
-    data = rows(user_id)
-
-    for target_id in configured_group_ids():
-        for item in data:
-            g = item.get("group") or {}
-
-            try:
-                group_id = int(g.get("id", 0))
-            except Exception:
-                continue
-
-            if group_id == int(target_id):
-                return item
-
-    return None
+    return find_group(user_id, Env.roblox_maingroup_id)
 
 
 def inside(user_id):
