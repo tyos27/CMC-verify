@@ -13,6 +13,50 @@ def pick(name, cast=str, default=None):
     return cast(value)
 
 
+def parse_roblox_group_roles():
+    items = []
+
+    for key, value in os.environ.items():
+        if not key.startswith("ROBLOX_GROUP_ID"):
+            continue
+
+        value = str(value or "").strip()
+
+        if not value:
+            continue
+
+        if ":" not in value:
+            raise RuntimeError(f"invalid env: {key}")
+
+        group_id, role_id = value.split(":", 1)
+
+        try:
+            group_id = int(group_id.strip())
+            role_id = int(role_id.strip())
+        except Exception:
+            raise RuntimeError(f"invalid env: {key}")
+
+        items.append((key, group_id, role_id))
+
+    def sort_key(item):
+        key = item[0]
+        suffix = key.replace("ROBLOX_GROUP_ID", "")
+
+        if suffix.isdigit():
+            return int(suffix)
+
+        return 999999
+
+    items.sort(key=sort_key)
+
+    result = [(group_id, role_id) for _, group_id, role_id in items]
+
+    if not result:
+        raise RuntimeError("missing env: ROBLOX_GROUP_ID1")
+
+    return result
+
+
 class Env:
     token = pick("DISCORD_TOKEN")
     guild_id = pick("DISCORD_GUILD_ID", int)
@@ -24,7 +68,8 @@ class Env:
     roblox_client_id = pick("ROBLOX_CLIENT_ID")
     roblox_client_secret = pick("ROBLOX_CLIENT_SECRET")
     roblox_redirect = pick("ROBLOX_REDIRECT_URI")
-    roblox_group_id = pick("ROBLOX_GROUP_ID", int)
+
+    roblox_group_roles = parse_roblox_group_roles()
 
     site_url = pick("SITE_URL")
 
@@ -32,7 +77,5 @@ class Env:
     web_port = pick("WEB_PORT", int, 8000)
 
     tag = pick("DISCORD_GROUP_TAG", str, "")
-    rank_roles = pick("ROBLOX_RANK_ROLES", str, "")
-
 
     game_api_key = pick("GAME_API_KEY")
