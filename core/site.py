@@ -20,7 +20,7 @@ app = FastAPI(
     openapi_url=None
 )
 
-GROUP_NAME = "JAD | Jang-Ae Dang"
+GROUP_NAME = "Roblox Main Group"
 
 hits = {}
 bad_hits = {}
@@ -94,7 +94,7 @@ def valid_code(code):
 
     code = str(code)
 
-    if len(code) < 5 or len(code) > 2000:
+    if len(code) < 5 or len(code) > 2500:
         print("oauth invalid code length:", len(code))
         return False
 
@@ -110,7 +110,7 @@ def start_blocked(state):
 
     last = oauth_starts.get(state)
 
-    if last and now - last < 3:
+    if last and now - last < 2:
         return True
 
     oauth_starts[state] = now
@@ -165,14 +165,12 @@ async def oauth_start(req: Request):
 
     print("oauth start received state:", state)
     print("oauth start SITE_URL:", Env.site_url)
-    print("oauth start redirect:", Env.roblox_redirect)
 
     if not state:
         return html("""
         <h2>JAD Verify</h2>
         <p>This is the Roblox OAuth entry point for JAD Verify.</p>
-        <p>This service is used to link a Roblox account with a Discord account for verification purposes.</p>
-        <p>To start verification, please return to the Discord server and press the verification button.</p>
+        <p>Please return to Discord and press the verification button.</p>
         """, 200)
 
     if not valid_state(state):
@@ -290,8 +288,7 @@ async def callback(req: Request):
                 message_id,
                 "⚠️ 인증 완료 - 그룹 미가입",
                 f"<@{discord_id}>님, {roblox_name}으로 안전하게 연동이 완료되었어요!\n"
-                f"하지만 [{GROUP_NAME}] 그룹에 가입되어 있지 않아 역할 지급은 어려울 것 같아요!\n"
-                f"그룹에 가입한 후 다시 시도해 주세요!",
+                f"하지만 Roblox 메인 그룹에 가입되어 있지 않아 역할 지급은 되지 않았어요.",
                 0xFEE75C
             ),
             bot.loop
@@ -346,10 +343,9 @@ async def game_session(req: Request):
 async def privacy():
     return html("""
     <h2>Privacy Policy</h2>
-    <p>JAD Verify is a Discord account verification service that uses Roblox OAuth and Roblox game code verification.</p>
-    <p>We may receive your Roblox user ID, Roblox username, Roblox display name, and Discord user ID for verification.</p>
-    <p>We do not collect Roblox passwords, Discord passwords, or payment information.</p>
-    <p>Data is used only for verification, Roblox group checks, and Discord role assignment.</p>
+    <p>This service verifies Discord users with Roblox accounts.</p>
+    <p>We store Discord ID, Roblox ID, Roblox username, and Roblox display name for verification.</p>
+    <p>We do not collect Roblox passwords or Discord passwords.</p>
     """, 200)
 
 
@@ -357,7 +353,6 @@ async def privacy():
 async def terms():
     return html("""
     <h2>Terms of Service</h2>
-    <p>JAD Verify is provided for Discord account verification using Roblox OAuth and Roblox game code verification.</p>
-    <p>You must only verify an account that you own or are allowed to use.</p>
-    <p>This service is provided as-is without guarantee of uninterrupted availability.</p>
+    <p>This service is used for Roblox and Discord verification.</p>
+    <p>You must only verify an account you own or are allowed to use.</p>
     """, 200)
