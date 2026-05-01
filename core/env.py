@@ -16,6 +16,18 @@ def pick(name, cast=str, default=None):
     return cast(value)
 
 
+def normalize_url(value):
+    value = str(value or "").strip().rstrip("/")
+
+    if not value:
+        return value
+
+    if not value.startswith(("http://", "https://")):
+        value = "https://" + value
+
+    return value
+
+
 def parse_optional_group_roles():
     items = []
 
@@ -61,11 +73,14 @@ class Env:
     supabase_url = pick("SUPABASE_URL")
     supabase_key = pick("SUPABASE_KEY")
 
-    site_url = pick("SITE_URL").rstrip("/")
+    site_url = normalize_url(pick("SITE_URL"))
 
     roblox_client_id = pick("ROBLOX_CLIENT_ID")
     roblox_client_secret = pick("ROBLOX_CLIENT_SECRET")
-    roblox_redirect = pick("ROBLOX_REDIRECT_URI", str, site_url + "/oauth/callback")
+
+    roblox_redirect = normalize_url(
+        pick("ROBLOX_REDIRECT_URI", str, site_url + "/oauth/callback")
+    )
 
     roblox_maingroup_id = pick("ROBLOX_MAINGROUP_ID", int)
     roblox_group_id = roblox_maingroup_id
