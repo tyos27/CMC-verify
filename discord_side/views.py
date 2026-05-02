@@ -1,519 +1,423 @@
-import secrets
-import discord
-from discord.ui import View, Button, Modal, TextInput
-from core.pending import put as hold
-from roblox.auth import start_link
-from store.links import pull, put
-from store.game_codes import create_discord_pending, consume_code
-from discord_side.roles import refresh
-from roblox.group import inside
-from datetime import datetime
+import requests
+from discord_side.client import bot
+from core.env import Env
+from store.links import pull
 
 
-def stamp():
-    now = datetime.now()
-    return now.strftime("%Y-%m-%d %H:%M")
+def parse_rank_roles():
+    out = {}
 
+    raw = Env.rank_roles
 
-def panel(title, desc, color=0x2f3136):
-    e = discord.Embed(
-        title=title,
-        description=desc,
-        color=color
-    )
-    e.set_footer(
-        text=f"JAD Verify • {stamp()}"
-    )
-    return e
-
-
-class TimedView(View):
-    def __init__(self, owner_id):
-        super().__init__(timeout=120)
-        self.owner_id = owner_id
-        self.message = None
-        self.closed = False
-
-    def close(self):
-        self.closed = True
-        self.stop()
-
-    async def on_timeout(self):
-        if self.closed:
-            return
-
-        try:
-            if not self.message:
-                return
-
-            msg = await self.message.channel.fetch_message(self.message.id)
-
-            if not msg.components:
-                return
-
-            await msg.edit(
-                embed=panel(
-                    "❌ 시간 초과",
-                    "계정 연동 시간이 초과되었습니다. 다시 시도해주세요.",
-                    0xed4245
-                ),
-                view=None
-            )
-        except Exception:
-            pass
-
-
-class UrlButton(Button):
-    def __init__(self, owner_id, channel_id=None, message_id=None):
-        state = secrets.token_urlsafe(32)
-        hold(state, owner_id, channel_id, message_id)
-
-        super().__init__(
-            label="인증하기",
-            style=discord.ButtonStyle.link,
-            url=start_link(state)
-        )
-
-
-class GameLinkButton(Button):
-    def __init__(self):
-        super().__init__(
-            label="인증 게임 바로가기",
-            style=discord.ButtonStyle.link,
-            url="https://www.roblox.com/games/126742579358323/JS-Authentication-Center-JS"
-        )
-
-
-class Gate(TimedView):
-    def __init__(self, owner_id):
-        super().__init__(owner_id)
-        self.add_item(StartButton(owner_id))
-
-
-class StartButton(Button):
-    def __init__(self, owner_id):
-        super().__init__(
-            label="인증하기",
-            style=discord.ButtonStyle.green
-        )
-        self.owner_id = owner_id
-
-    async def callback(self, interaction):
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                embed=panel(
-                    "⚠️ 권한 부족",
-                    "본인만 사용할 수 있습니다.",
-                    0xed4245
-                ),
-                ephemeral=True
-            )
-            return
-
-        self.view.close()
-
-        old = pull(self.owner_id)
-
-        if old:
-            v = ConfirmView(self.owner_id)
-
-            await interaction.response.edit_message(
-                embed=panel(
-                    ":scroll: 기존 인증 기록",
-                    f"`{old['roblox_name']}` 계정으로 연동되어 있습니다.\n이 계정으로 계속할까요?",
-                    0x5865f2
-                ),
-                view=v
-            )
-
-            v.message = interaction.message
-            return
-
-        v = MethodView(self.owner_id)
-
-        await interaction.response.edit_message(
-            embed=panel(
-                "✅ 인증 방식 선택",
-                "새 Roblox 계정으로 다시 인증할 방식을 선택해주세요!\n\n"
-                "1. OAuth 인증\n"
-                "Roblox 공식 로그인 페이지를 통해 바로 인증합니다.\n\n"
-                "2. 게임 코드 인증\n"
-                "Roblox 닉네임을 입력한 뒤 인증용 게임에 접속해서 코드를 확인합니다.",
-                0x57f287
-            ),
-            view=v
-        )
-
-        v.message = interaction.message
-
-
-class MethodView(TimedView):
-    def __init__(self, owner_id):
-        super().__init__(owner_id)
-        self.add_item(OAuthMethodButton(owner_id))
-        self.add_item(GameCodeMethodButton(owner_id))
-
-
-class OAuthMethodButton(Button):
-    def __init__(self, owner_id):
-        super().__init__(
-            label="1️⃣",
-            style=discord.ButtonStyle.green
-        )
-        self.owner_id = owner_id
-
-    async def callback(self, interaction):
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                embed=panel(
-                    "⚠️ 권한 부족",
-                    "본인만 사용할 수 있습니다.",
-                    0xed4245
-                ),
-                ephemeral=True
-            )
-            return
-
-        self.view.close()
-
-        v = TimedView(self.owner_id)
-        v.add_item(
-            UrlButton(
-                self.owner_id,
-                interaction.channel.id,
-                interaction.message.id
-            )
-        )
-
-        await interaction.response.edit_message(
-            embed=panel(
-                "✅ Roblox 인증",
-                "아래 버튼을 눌러 Roblox 계정을 연동하세요!",
-                0x57f287
-            ),
-            view=v
-        )
-
-        v.message = interaction.message
-
-
-class GameCodeMethodButton(Button):
-    def __init__(self, owner_id):
-        super().__init__(
-            label="2️⃣",
-            style=discord.ButtonStyle.green
-        )
-        self.owner_id = owner_id
-
-    async def callback(self, interaction):
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                embed=panel(
-                    "⚠️ 권한 부족",
-                    "본인만 사용할 수 있습니다.",
-                    0xed4245
-                ),
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.send_modal(
-            RobloxNameModal(
-                self.owner_id,
-                interaction.message
-            )
-        )
-
-
-class RobloxNameModal(Modal):
-    def __init__(self, owner_id, target_message):
-        super().__init__(title="계정 인증")
-        self.owner_id = owner_id
-        self.target_message = target_message
-
-        self.roblox_name = TextInput(
-            label="인증하려는 Roblox 계정 닉네임",
-            placeholder="예: tyos",
-            min_length=3,
-            max_length=20,
-            required=True
-        )
-
-        self.add_item(self.roblox_name)
-
-    async def on_submit(self, interaction):
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                embed=panel(
-                    "⚠️ 권한 부족",
-                    "본인만 사용할 수 있습니다.",
-                    0xed4245
-                ),
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        roblox_name = str(self.roblox_name.value).strip()
-
-        create_discord_pending(
-            interaction.user.id,
-            str(interaction.user),
-            roblox_name
-        )
-
-        v = TimedView(self.owner_id)
-        v.add_item(GameLinkButton())
-        v.add_item(EnterCodeButton(self.owner_id))
-
-        await self.target_message.edit(
-            embed=panel(
-                "✅ 인증 대기 중",
-                f"인증하려는 Roblox 계정: `{roblox_name}`\n\n"
-                "이제 인증용 [Roblox 게임](https://www.roblox.com/games/126742579358323/JS-Authentication-Center-JS)에 해당 계정으로 접속하세요.\n"
-                "게임 화면에 표시되는 6자리 코드를 확인한 뒤 아래 **코드 입력** 버튼을 눌러 입력해주세요!\n\n"
-                "코드는 2분 동안만 유효해요!",
-                0x57f287
-            ),
-            view=v
-        )
-
-        v.message = self.target_message
-
-        await interaction.followup.send(
-            embed=panel(
-                "✅ 요청 완료",
-                "인증용 Roblox 게임에 접속한 뒤, 표시되는 6자리 코드를 입력하세요.",
-                0x57f287
-            ),
-            ephemeral=True
-        )
-
-
-class EnterCodeButton(Button):
-    def __init__(self, owner_id):
-        super().__init__(
-            label="코드 입력",
-            style=discord.ButtonStyle.gray
-        )
-        self.owner_id = owner_id
-
-    async def callback(self, interaction):
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                embed=panel(
-                    "⚠️ 권한 부족",
-                    "본인만 사용할 수 있습니다.",
-                    0xed4245
-                ),
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.send_modal(
-            GameCodeModal(
-                self.owner_id,
-                interaction.message
-            )
-        )
-
-
-class GameCodeModal(Modal):
-    def __init__(self, owner_id, target_message):
-        super().__init__(title="게임 코드 입력")
-        self.owner_id = owner_id
-        self.target_message = target_message
-
-        self.code = TextInput(
-            label="Roblox 게임에 표시된 6자리 코드",
-            placeholder="예: 123456",
-            min_length=6,
-            max_length=7,
-            required=True
-        )
-
-        self.add_item(self.code)
-
-    async def on_submit(self, interaction):
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                embed=panel(
-                    "⚠️ 권한 부족",
-                    "본인만 사용할 수 있습니다.",
-                    0xed4245
-                ),
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        clean = str(self.code.value).replace(" ", "").strip()
-
-        if not clean.isdigit() or len(clean) != 6:
-            await interaction.followup.send(
-                embed=panel(
-                    "❌ 잘못된 코드",
-                    "6자리 숫자 코드를 입력해주세요.",
-                    0xed4245
-                ),
-                ephemeral=True
-            )
-            return
-
-        row = consume_code(clean)
+    for row in raw.split(","):
+        row = row.strip()
 
         if not row:
-            await interaction.followup.send(
-                embed=panel(
-                    "❌ 인증 실패",
-                    "코드가 없거나 만료되었습니다. Roblox 게임에서 새 코드를 받아주세요.",
-                    0xed4245
-                ),
-                ephemeral=True
-            )
-            return
+            continue
 
-        if str(row.get("discord_id")) != str(interaction.user.id):
-            await interaction.followup.send(
-                embed=panel(
-                    "❌ 인증 실패",
-                    "이 코드는 다른 Discord 계정의 인증 코드입니다.",
-                    0xed4245
-                ),
-                ephemeral=True
-            )
-            return
+        if ":" not in row:
+            continue
 
-        if not row.get("roblox_id"):
-            await interaction.followup.send(
-                embed=panel(
-                    "❌ 인증 실패",
-                    "Roblox 게임 접속 확인이 아직 완료되지 않았습니다. 게임에 먼저 접속해서 코드를 확인해주세요.",
-                    0xed4245
-                ),
-                ephemeral=True
-            )
-            return
-
-        put(
-            interaction.user.id,
-            row["roblox_id"],
-            row["roblox_name"],
-            row.get("roblox_display_name")
-        )
-
-        if inside(int(row["roblox_id"])):
-            ok, msg = await refresh(interaction.user.id)
-
-            await self.target_message.edit(
-                embed=panel(
-                    "✅ 인증 완료",
-                    msg,
-                    0x57f287 if ok else 0xfee75c
-                ),
-                view=None
-            )
-
-            try:
-                await interaction.delete_original_response()
-            except Exception:
-                pass
-
-            return
-
-        await self.target_message.edit(
-            embed=panel(
-                "⚠️ 인증 저장 완료",
-                f"`{row['roblox_name']}` 계정 연동은 완료되었어요!\n하지만 Roblox 그룹에 가입되어 있지 않아 역할 지급은 되지 않았어요!",
-                0xfee75c
-            ),
-            view=None
-        )
+        left, right = row.split(":", 1)
 
         try:
-            await interaction.delete_original_response()
+            rank = int(left.strip())
+            role_id = int(right.strip())
+        except Exception:
+            continue
+
+        if rank not in out:
+            out[rank] = []
+
+        if role_id not in out[rank]:
+            out[rank].append(role_id)
+
+    return out
+
+
+def parse_rank_tags():
+    out = {}
+
+    raw = Env.rank_tags
+
+    for row in raw.split(","):
+        row = row.strip()
+
+        if not row:
+            continue
+
+        if ":" not in row:
+            continue
+
+        left, right = row.split(":", 1)
+
+        try:
+            rank = int(left.strip())
+            tag = str(right).strip()
+        except Exception:
+            continue
+
+        if not tag:
+            continue
+
+        if rank not in out:
+            out[rank] = []
+
+        if tag not in out[rank]:
+            out[rank].append(tag)
+
+    return out
+
+
+def optional_groups():
+    result = []
+
+    for item in Env.roblox_group_roles:
+        try:
+            result.append({
+                "group_id": int(item["group_id"]),
+                "role_id": int(item["role_id"]),
+                "label": str(item.get("label") or "").strip()
+            })
         except Exception:
             pass
 
-
-class ConfirmView(TimedView):
-    def __init__(self, owner_id):
-        super().__init__(owner_id)
-        self.add_item(YesButton(owner_id))
-        self.add_item(NoButton(owner_id))
+    return result
 
 
-class YesButton(Button):
-    def __init__(self, owner_id):
-        super().__init__(
-            label="✅",
-            style=discord.ButtonStyle.green
+def roblox_groups(user_id):
+    url = f"https://groups.roblox.com/v2/users/{user_id}/groups/roles"
+
+    r = requests.get(url, timeout=15)
+
+    if r.status_code >= 400:
+        print("roblox group api failed:", r.status_code, r.text)
+        return []
+
+    data = r.json().get("data", [])
+
+    print("roblox groups raw count:", len(data))
+
+    return data
+
+
+def get_group_rows(user_id):
+    result = {}
+
+    for item in roblox_groups(user_id):
+        group = item.get("group") or {}
+
+        try:
+            group_id = int(group.get("id", 0))
+        except Exception:
+            continue
+
+        if group_id not in result:
+            result[group_id] = []
+
+        result[group_id].append(item)
+
+    return result
+
+
+def first_group_row(group_rows, group_id):
+    rows = group_rows.get(int(group_id), [])
+
+    if not rows:
+        return None
+
+    return rows[0]
+
+
+def parse_rank_from_role_obj(role):
+    if not isinstance(role, dict):
+        return None
+
+    for key in ("rank", "roleRank"):
+        try:
+            value = role.get(key)
+
+            if value is not None:
+                return int(value)
+        except Exception:
+            pass
+
+    return None
+
+
+def collect_ranks_from_row(row):
+    ranks = []
+
+    if not isinstance(row, dict):
+        return ranks
+
+    role = row.get("role") or {}
+
+    rank = parse_rank_from_role_obj(role)
+
+    if rank is not None:
+        ranks.append(rank)
+
+    for key in ("roles", "roleSets", "role_sets", "assignedRoles", "assigned_roles"):
+        value = row.get(key)
+
+        if isinstance(value, list):
+            for role_item in value:
+                rank = parse_rank_from_role_obj(role_item)
+
+                if rank is not None:
+                    ranks.append(rank)
+
+        elif isinstance(value, dict):
+            rank = parse_rank_from_role_obj(value)
+
+            if rank is not None:
+                ranks.append(rank)
+
+    return ranks
+
+
+def get_ranks_from_group_rows(group_rows, group_id):
+    ranks = []
+
+    rows = group_rows.get(int(group_id), [])
+
+    for row in rows:
+        for rank in collect_ranks_from_row(row):
+            if rank not in ranks:
+                ranks.append(rank)
+
+    ranks.sort()
+
+    return ranks
+
+
+def clean(value):
+    if value is None:
+        return ""
+
+    value = str(value).strip()
+
+    if value.lower() in ("none", "null"):
+        return ""
+
+    return value
+
+
+def default_tag():
+    tag = Env.tag.strip()
+
+    if ":" in tag or "," in tag:
+        return ""
+
+    return tag
+
+
+def first_joined_optional_label(group_rows):
+    for item in optional_groups():
+        group_id = item["group_id"]
+
+        if group_id in group_rows:
+            label = item.get("label") or ""
+
+            if label:
+                return label
+
+            rows = group_rows.get(group_id) or []
+            row = rows[0] if rows else {}
+            group = row.get("group") or {}
+            return str(group.get("name") or group_id)
+
+    return ""
+
+
+def make_nick(saved, user_ranks, main_joined, group_rows):
+    username = clean(saved.get("roblox_name"))
+    display = clean(saved.get("roblox_display_name"))
+
+    if display and display != username:
+        name = f"({display}) {username}"
+    else:
+        name = username
+
+    prefix = ""
+
+    if main_joined:
+        rank_tags = parse_rank_tags()
+        tags = []
+
+        for rank in user_ranks:
+            for tag in rank_tags.get(rank, []):
+                if tag not in tags:
+                    tags.append(tag)
+
+        if tags:
+            prefix = "".join(f"[{tag}]" for tag in tags)
+        else:
+            tag = default_tag()
+
+            if tag:
+                prefix = f"[{tag}]"
+    else:
+        label = first_joined_optional_label(group_rows)
+
+        if label:
+            prefix = f"[{label}]"
+
+    if prefix:
+        nick = f"{prefix} {name}"
+    else:
+        nick = name
+
+    return nick[:32]
+
+
+async def refresh(discord_id):
+    saved = pull(discord_id)
+
+    if not saved:
+        return False, "연동 기록이 없습니다."
+
+    guild = bot.get_guild(Env.guild_id)
+
+    if not guild:
+        return False, "서버를 찾지 못했습니다."
+
+    member = guild.get_member(int(discord_id))
+
+    if not member:
+        try:
+            member = await guild.fetch_member(int(discord_id))
+        except Exception:
+            return False, "멤버를 찾지 못했습니다."
+
+    base_role = guild.get_role(Env.role_id)
+
+    if not base_role:
+        return False, "기본 역할을 찾지 못했습니다."
+
+    roblox_id = int(saved["roblox_id"])
+
+    group_rows = get_group_rows(roblox_id)
+
+    main_group_id = int(Env.roblox_maingroup_id)
+    main_joined = main_group_id in group_rows
+
+    joined_optional = []
+
+    for item in optional_groups():
+        if item["group_id"] in group_rows:
+            joined_optional.append(item)
+
+    if not main_joined and not joined_optional:
+        print("no valid roblox group joined")
+        print("main group:", Env.roblox_maingroup_id)
+        print("joined roblox groups:", list(group_rows.keys()))
+        return False, "Roblox 메인 그룹 또는 인증 가능한 부서 그룹에 가입되어 있지 않습니다."
+
+    user_ranks = []
+
+    if main_joined:
+        user_ranks = get_ranks_from_group_rows(group_rows, main_group_id)
+
+    print("main group joined:", main_joined)
+    print("main group role ranks detected:", user_ranks)
+
+    rank_roles = parse_rank_roles()
+
+    all_optional_role_ids = set()
+
+    for item in optional_groups():
+        all_optional_role_ids.add(item["role_id"])
+
+    should_optional_role_ids = set()
+
+    for item in joined_optional:
+        should_optional_role_ids.add(item["role_id"])
+
+    all_rank_role_ids = set()
+
+    for role_ids in rank_roles.values():
+        for role_id in role_ids:
+            all_rank_role_ids.add(role_id)
+
+    should_rank_role_ids = set()
+
+    if main_joined:
+        for rank in user_ranks:
+            for role_id in rank_roles.get(rank, []):
+                should_rank_role_ids.add(role_id)
+
+    print("should rank discord roles:", list(should_rank_role_ids))
+    print("should optional discord roles:", list(should_optional_role_ids))
+
+    try:
+        await member.edit(
+            nick=make_nick(saved, user_ranks, main_joined, group_rows),
+            reason="Roblox verify sync"
         )
-        self.owner_id = owner_id
+    except Exception as e:
+        print("nickname edit failed:", e)
 
-    async def callback(self, interaction):
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                embed=panel(
-                    "⚠️ 권한 부족",
-                    "본인만 사용할 수 있습니다.",
-                    0xed4245
-                ),
-                ephemeral=True
+    remove_roles = []
+
+    for role in member.roles:
+        if role.id in all_optional_role_ids and role.id not in should_optional_role_ids:
+            remove_roles.append(role)
+
+        if role.id in all_rank_role_ids and role.id not in should_rank_role_ids:
+            remove_roles.append(role)
+
+    if remove_roles:
+        try:
+            await member.remove_roles(
+                *remove_roles,
+                reason="Roblox role sync"
             )
-            return
+        except Exception as e:
+            print("role remove failed:", e)
 
-        self.view.close()
+    add_roles = []
 
-        ok, msg = await refresh(self.owner_id)
+    if base_role not in member.roles:
+        add_roles.append(base_role)
 
-        await interaction.response.edit_message(
-            embed=panel(
-                "✅ 인증 완료",
-                msg,
-                0x57f287 if ok else 0xed4245
-            ),
-            view=None
-        )
+    for role_id in should_optional_role_ids:
+        role = guild.get_role(role_id)
 
+        if role and role not in member.roles:
+            add_roles.append(role)
 
-class NoButton(Button):
-    def __init__(self, owner_id):
-        super().__init__(
-            label="❌",
-            style=discord.ButtonStyle.red
-        )
-        self.owner_id = owner_id
+        if not role:
+            print("optional discord role not found:", role_id)
 
-    async def callback(self, interaction):
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                embed=panel(
-                    "⚠️ 권한 부족",
-                    "본인만 사용할 수 있습니다.",
-                    0xed4245
-                ),
-                ephemeral=True
+    for role_id in should_rank_role_ids:
+        role = guild.get_role(role_id)
+
+        if role and role not in member.roles:
+            add_roles.append(role)
+
+        if not role:
+            print("rank discord role not found:", role_id)
+
+    unique_add_roles = []
+    seen = set()
+
+    for role in add_roles:
+        if role.id in seen:
+            continue
+
+        seen.add(role.id)
+        unique_add_roles.append(role)
+
+    if unique_add_roles:
+        try:
+            await member.add_roles(
+                *unique_add_roles,
+                reason="Roblox verify"
             )
-            return
+        except Exception as e:
+            print("role add failed:", e)
+            return False, "역할 지급에 실패했습니다. 봇 역할 위치나 권한을 확인해주세요."
 
-        self.view.close()
-
-        v = MethodView(self.owner_id)
-
-        await interaction.response.edit_message(
-            embed=panel(
-                "⚠️ 재인증",
-                "새 Roblox 계정으로 다시 인증할 방식을 선택해주세요!\n\n"
-                "1. OAuth 인증\n"
-                "Roblox 공식 로그인 페이지를 통해 바로 인증합니다.\n\n"
-                "2. 게임 코드 인증\n"
-                "Roblox 닉네임을 입력한 뒤 인증용 게임에 접속해서 코드를 확인합니다.",
-                0xfee75c
-            ),
-            view=v
-        )
-
-        v.message = interaction.message
+    return True, f"{saved['roblox_name']} 계정 인증이 완료되었습니다."
