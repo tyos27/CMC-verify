@@ -25,7 +25,9 @@ def configured_optional_group_ids():
     return result
 
 
-def find_group_in_rows(data, target_group_id):
+def find_group_rows_in_data(data, target_group_id):
+    result = []
+
     for item in data:
         group = item.get("group") or {}
 
@@ -35,7 +37,16 @@ def find_group_in_rows(data, target_group_id):
             continue
 
         if group_id == int(target_group_id):
-            return item
+            result.append(item)
+
+    return result
+
+
+def find_group_in_rows(data, target_group_id):
+    found = find_group_rows_in_data(data, target_group_id)
+
+    if found:
+        return found[0]
 
     return None
 
@@ -60,6 +71,70 @@ def pick_optional(user_id):
     return None
 
 
+def parse_rank_from_role_obj(role):
+    if not isinstance(role, dict):
+        return None
+
+    for key in ("rank", "roleRank"):
+        try:
+            value = role.get(key)
+
+            if value is not None:
+                return int(value)
+        except Exception:
+            pass
+
+    return None
+
+
+def collect_ranks_from_row(row):
+    ranks = []
+
+    if not isinstance(row, dict):
+        return ranks
+
+    role = row.get("role") or {}
+
+    rank = parse_rank_from_role_obj(role)
+
+    if rank is not None:
+        ranks.append(rank)
+
+    for key in ("roles", "roleSets", "role_sets", "assignedRoles", "assigned_roles"):
+        value = row.get(key)
+
+        if isinstance(value, list):
+            for role_item in value:
+                rank = parse_rank_from_role_obj(role_item)
+
+                if rank is not None:
+                    ranks.append(rank)
+
+        elif isinstance(value, dict):
+            rank = parse_rank_from_role_obj(value)
+
+            if rank is not None:
+                ranks.append(rank)
+
+    return ranks
+
+
+def ranks(user_id):
+    data = rows(user_id)
+    group_rows = find_group_rows_in_data(data, Env.roblox_maingroup_id)
+
+    result = []
+
+    for row in group_rows:
+        for rank in collect_ranks_from_row(row):
+            if rank not in result:
+                result.append(rank)
+
+    result.sort()
+
+    return result
+
+
 def inside(user_id):
     data = rows(user_id)
 
@@ -74,14 +149,9 @@ def inside(user_id):
 
 
 def rank(user_id):
-    item = pick(user_id)
+    found_ranks = ranks(user_id)
 
-    if not item:
+    if not found_ranks:
         return 0
 
-    role = item.get("role") or {}
-
-    try:
-        return int(role.get("rank") or 0)
-    except Exception:
-        return 0
+    return max(found_ranks)
