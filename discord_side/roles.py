@@ -259,7 +259,7 @@ def first_joined_optional_label(group_rows):
     return ""
 
 
-def make_nick(saved, user_rank, main_joined, group_rows):
+def make_nick(saved, user_ranks, main_joined, group_rows):
     username = clean(saved.get("roblox_name"))
     display = clean(saved.get("roblox_display_name"))
 
@@ -271,7 +271,13 @@ def make_nick(saved, user_rank, main_joined, group_rows):
     prefix = ""
 
     if main_joined:
-        tags = parse_rank_tags().get(user_rank, [])
+        rank_tags = parse_rank_tags()
+        tags = []
+
+        for rank in user_ranks:
+            for tag in rank_tags.get(rank, []):
+                if tag not in tags:
+                    tags.append(tag)
 
         if tags:
             prefix = "".join(f"[{tag}]" for tag in tags)
@@ -294,16 +300,12 @@ def make_nick(saved, user_rank, main_joined, group_rows):
     return nick[:32]
 
 
-def cumulative_rank_role_ids(rank_roles, user_rank):
+def exact_rank_role_ids(rank_roles, user_ranks):
     result = set()
 
-    if user_rank <= 0:
-        return result
-
-    for rank, role_ids in rank_roles.items():
-        if rank <= user_rank:
-            for role_id in role_ids:
-                result.add(role_id)
+    for rank in user_ranks:
+        for role_id in rank_roles.get(rank, []):
+            result.add(role_id)
 
     return result
 
@@ -357,14 +359,8 @@ async def refresh(discord_id):
     if main_joined:
         user_ranks = get_ranks_from_group_rows(group_rows, main_group_id)
 
-    if user_ranks:
-        user_rank = max(user_ranks)
-    else:
-        user_rank = 0
-
     print("main group joined:", main_joined)
     print("main group ranks detected:", user_ranks)
-    print("main group highest rank:", user_rank)
 
     rank_roles = parse_rank_roles()
 
@@ -387,14 +383,14 @@ async def refresh(discord_id):
     should_rank_role_ids = set()
 
     if main_joined:
-        should_rank_role_ids = cumulative_rank_role_ids(rank_roles, user_rank)
+        should_rank_role_ids = exact_rank_role_ids(rank_roles, user_ranks)
 
     print("should rank discord roles:", list(should_rank_role_ids))
     print("should optional discord roles:", list(should_optional_role_ids))
 
     try:
         await member.edit(
-            nick=make_nick(saved, user_rank, main_joined, group_rows),
+            nick=make_nick(saved, user_ranks, main_joined, group_rows),
             reason="Roblox verify sync"
         )
     except Exception as e:
