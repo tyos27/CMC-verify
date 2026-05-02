@@ -40,16 +40,21 @@ def parse_optional_group_roles():
         if not value:
             continue
 
-        if ":" not in value:
-            continue
+        parts = value.split(":", 2)
 
-        left, right = value.split(":", 1)
+        if len(parts) < 2:
+            continue
 
         try:
-            group_id = int(left.strip())
-            discord_role_id = int(right.strip())
+            group_id = int(parts[0].strip())
+            discord_role_id = int(parts[1].strip())
         except Exception:
             continue
+
+        label = ""
+
+        if len(parts) >= 3:
+            label = str(parts[2]).strip()
 
         suffix = key.replace("ROBLOX_GROUP_ID", "")
 
@@ -58,11 +63,16 @@ def parse_optional_group_roles():
         else:
             order = 999999
 
-        items.append((order, group_id, discord_role_id))
+        items.append({
+            "order": order,
+            "group_id": group_id,
+            "role_id": discord_role_id,
+            "label": label
+        })
 
-    items.sort(key=lambda x: x[0])
+    items.sort(key=lambda x: x["order"])
 
-    return [(group_id, discord_role_id) for _, group_id, discord_role_id in items]
+    return items
 
 
 class Env:
