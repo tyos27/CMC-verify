@@ -71,16 +71,26 @@ def pick_optional(user_id):
     return None
 
 
-def parse_rank_from_role_obj(role):
+def get_rank_from_role(role):
     if not isinstance(role, dict):
         return None
 
-    for key in ("rank", "roleRank"):
-        try:
-            value = role.get(key)
+    keys = (
+        "rank",
+        "roleRank",
+        "rankId",
+        "role_rank",
+        "roleRankId"
+    )
 
-            if value is not None:
-                return int(value)
+    for key in keys:
+        value = role.get(key)
+
+        if value is None:
+            continue
+
+        try:
+            return int(value)
         except Exception:
             pass
 
@@ -95,28 +105,46 @@ def collect_ranks_from_row(row):
 
     role = row.get("role") or {}
 
-    rank = parse_rank_from_role_obj(role)
+    rank = get_rank_from_role(role)
 
     if rank is not None:
         ranks.append(rank)
 
-    for key in ("roles", "roleSets", "role_sets", "assignedRoles", "assigned_roles"):
+    possible_multi_role_keys = (
+        "roles",
+        "roleSets",
+        "role_sets",
+        "assignedRoles",
+        "assigned_roles",
+        "communityRoles",
+        "community_roles"
+    )
+
+    for key in possible_multi_role_keys:
         value = row.get(key)
 
         if isinstance(value, list):
             for role_item in value:
-                rank = parse_rank_from_role_obj(role_item)
+                rank = get_rank_from_role(role_item)
 
                 if rank is not None:
                     ranks.append(rank)
 
         elif isinstance(value, dict):
-            rank = parse_rank_from_role_obj(value)
+            rank = get_rank_from_role(value)
 
             if rank is not None:
                 ranks.append(rank)
 
-    return ranks
+    unique = []
+
+    for rank in ranks:
+        if rank not in unique:
+            unique.append(rank)
+
+    unique.sort()
+
+    return unique
 
 
 def ranks(user_id):
