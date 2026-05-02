@@ -503,9 +503,9 @@ class NoButton(Button):
         await interaction.response.edit_message(
             embed=panel(
                 "⚠️ 재인증",
-                "새 Roblox 계정으로 다시 인증할 방식을 선택해주세요.\n\n"
-                "**1. OAuth 인증**Roblox 공식 로그인 페이지를 통해 바로 인증합니다.\n\n"
-                "**2. 게임 코드 인증**Roblox 닉네임을 입력한 뒤 인증용 게임에 접속해서 코드를 확인합니다.",
+                "새 Roblox 계정으로 다시 인증할 방식을 선택해주세요.\n"
+                "**1. OAuth 인증**\nRoblox 공식 로그인 페이지를 통해 바로 인증합니다.\n"
+                "**2. 게임 코드 인증**\nRoblox 닉네임을 입력한 뒤 인증용 게임에 접속해서 코드를 확인합니다.",
                 0xfee75c
             ),
             view=v
