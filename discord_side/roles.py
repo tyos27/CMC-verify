@@ -69,11 +69,18 @@ def parse_rank_tags():
     return out
 
 
-def optional_group_role_map():
-    result = {}
+def optional_groups():
+    result = []
 
-    for group_id, role_id in Env.roblox_group_roles:
-        result[int(group_id)] = int(role_id)
+    for item in Env.roblox_group_roles:
+        try:
+            result.append({
+                "group_id": int(item["group_id"]),
+                "role_id": int(item["role_id"]),
+                "label": str(item.get("label") or "").strip()
+            })
+        except Exception:
+            pass
 
     return result
 
@@ -139,7 +146,24 @@ def default_tag():
     return tag
 
 
-def make_nick(saved, user_rank):
+def first_joined_optional_label(group_rows):
+    for item in optional_groups():
+        group_id = item["group_id"]
+
+        if group_id in group_rows:
+            label = item.get("label") or ""
+
+            if label:
+                return label
+
+            row = group_rows.get(group_id) or {}
+            group = row.get("group") or {}
+            return str(group.get("name") or group_id)
+
+    return ""
+
+
+def make_nick(saved, user_rank, main_joined, group_rows):
     username = clean(saved.get("roblox_name"))
     display = clean(saved.get("roblox_display_name"))
 
@@ -148,18 +172,28 @@ def make_nick(saved, user_rank):
     else:
         name = username
 
-    tags = parse_rank_tags().get(user_rank, [])
+    prefix = ""
 
-    if tags:
-        prefix = "".join(f"[{tag}]" for tag in tags)
+    if main_joined:
+        tags = parse_rank_tags().get(user_rank, [])
+
+        if tags:
+            prefix = "".join(f"[{tag}]" for tag in tags)
+        else:
+            tag = default_tag()
+
+            if tag:
+                prefix = f"[{tag}]"
+    else:
+        label = first_joined_optional_label(group_rows)
+
+        if label:
+            prefix = f"[{label}]"
+
+    if prefix:
         nick = f"{prefix} {name}"
     else:
-        tag = default_tag()
-
-        if tag:
-            nick = f"[{tag}] {name}"
-        else:
-            nick = name
+        nick = name
 
     return nick[:32]
 
@@ -191,25 +225,35 @@ async def refresh(discord_id):
     roblox_id = int(saved["roblox_id"])
 
     group_rows = get_group_rows(roblox_id)
+
     main_group_row = group_rows.get(int(Env.roblox_maingroup_id))
+    main_joined = main_group_row is not None
 
-    if not main_group_row:
-        print("main group not joined:", Env.roblox_maingroup_id, "roblox:", roblox_id)
+    joined_optional = []
+
+    for item in optional_groups():
+        if item["group_id"] in group_rows:
+            joined_optional.append(item)
+
+    if not main_joined and not joined_optional:
+        print("no valid roblox group joined")
+        print("main group:", Env.roblox_maingroup_id)
         print("joined roblox groups:", list(group_rows.keys()))
-        return False, "Roblox 메인 그룹에 가입되어 있지 않습니다."
+        return False, "Roblox 메인 그룹 또는 인증 가능한 부서 그룹에 가입되어 있지 않습니다."
 
-    user_rank = get_rank_from_group_row(main_group_row)
+    user_rank = get_rank_from_group_row(main_group_row) if main_joined else 0
 
-    optional_groups = optional_group_role_map()
     rank_roles = parse_rank_roles()
 
-    all_optional_role_ids = set(optional_groups.values())
+    all_optional_role_ids = set()
+
+    for item in optional_groups():
+        all_optional_role_ids.add(item["role_id"])
 
     should_optional_role_ids = set()
 
-    for group_id, discord_role_id in optional_groups.items():
-        if group_id in group_rows:
-            should_optional_role_ids.add(discord_role_id)
+    for item in joined_optional:
+        should_optional_role_ids.add(item["role_id"])
 
     all_rank_role_ids = set()
 
@@ -217,11 +261,14 @@ async def refresh(discord_id):
         for role_id in role_ids:
             all_rank_role_ids.add(role_id)
 
-    should_rank_role_ids = set(rank_roles.get(user_rank, []))
+    should_rank_role_ids = set()
+
+    if main_joined:
+        should_rank_role_ids = set(rank_roles.get(user_rank, []))
 
     try:
         await member.edit(
-            nick=make_nick(saved, user_rank),
+            nick=make_nick(saved, user_rank, main_joined, group_rows),
             reason="Roblox verify sync"
         )
     except Exception as e:
