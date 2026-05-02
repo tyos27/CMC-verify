@@ -134,12 +134,10 @@ class StartButton(Button):
         await interaction.response.edit_message(
             embed=panel(
                 "✅ 인증 방식 선택",
-                "새 Roblox 계정으로 다시 인증할 방식을 선택해주세요!\n"
-                "\u200b\n"
-                "**1. OAuth 인증**\n"
-                "Roblox 공식 로그인 페이지를 통해 바로 인증합니다.\n"
-                "\u200b\n"
-                "**2. 게임 코드 인증**\n"
+                "새 Roblox 계정으로 다시 인증할 방식을 선택해주세요!\n\n"
+                "1. OAuth 인증\n"
+                "Roblox 공식 로그인 페이지를 통해 바로 인증합니다.\n\n"
+                "2. 게임 코드 인증\n"
                 "Roblox 닉네임을 입력한 뒤 인증용 게임에 접속해서 코드를 확인합니다.",
                 0x57f287
             ),
@@ -160,7 +158,7 @@ class OAuthMethodButton(Button):
     def __init__(self, owner_id):
         super().__init__(
             label="1️⃣",
-            style=discord.ButtonStyle.blurple
+            style=discord.ButtonStyle.green
         )
         self.owner_id = owner_id
 
@@ -508,12 +506,10 @@ class NoButton(Button):
         await interaction.response.edit_message(
             embed=panel(
                 "⚠️ 재인증",
-                "새 Roblox 계정으로 다시 인증할 방식을 선택해주세요!\n"
-                "\u200b\n"
-                "**1. OAuth 인증**\n"
-                "Roblox 공식 로그인 페이지를 통해 바로 인증합니다.\n"
-                "\u200b\n"
-                "**2. 게임 코드 인증**\n"
+                "새 Roblox 계정으로 다시 인증할 방식을 선택해주세요!\n\n"
+                "1. OAuth 인증\n"
+                "Roblox 공식 로그인 페이지를 통해 바로 인증합니다.\n\n"
+                "2. 게임 코드 인증\n"
                 "Roblox 닉네임을 입력한 뒤 인증용 게임에 접속해서 코드를 확인합니다.",
                 0xfee75c
             ),
