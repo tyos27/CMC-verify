@@ -94,7 +94,11 @@ def roblox_groups(user_id):
         print("roblox group api failed:", r.status_code, r.text)
         return []
 
-    return r.json().get("data", [])
+    data = r.json().get("data", [])
+
+    print("roblox groups raw count:", len(data))
+
+    return data
 
 
 def get_group_rows(user_id):
@@ -108,21 +112,112 @@ def get_group_rows(user_id):
         except Exception:
             continue
 
-        result[group_id] = item
+        if group_id not in result:
+            result[group_id] = []
+
+        result[group_id].append(item)
 
     return result
 
 
-def get_rank_from_group_row(row):
-    if not row:
-        return 0
+def get_group_first_row(group_rows, group_id):
+    rows = group_rows.get(int(group_id), [])
+
+    if not rows:
+        return None
+
+    return rows[0]
+
+
+def get_rank_from_role(role):
+    if not isinstance(role, dict):
+        return None
+
+    keys = (
+        "rank",
+        "roleRank",
+        "rankId",
+        "role_rank",
+        "roleRankId"
+    )
+
+    for key in keys:
+        value = role.get(key)
+
+        if value is None:
+            continue
+
+        try:
+            return int(value)
+        except Exception:
+            pass
+
+    return None
+
+
+def collect_ranks_from_row(row):
+    ranks = []
+
+    if not isinstance(row, dict):
+        return ranks
 
     role = row.get("role") or {}
 
-    try:
-        return int(role.get("rank") or 0)
-    except Exception:
-        return 0
+    rank = get_rank_from_role(role)
+
+    if rank is not None:
+        ranks.append(rank)
+
+    possible_multi_role_keys = (
+        "roles",
+        "roleSets",
+        "role_sets",
+        "assignedRoles",
+        "assigned_roles",
+        "communityRoles",
+        "community_roles"
+    )
+
+    for key in possible_multi_role_keys:
+        value = row.get(key)
+
+        if isinstance(value, list):
+            for role_item in value:
+                rank = get_rank_from_role(role_item)
+
+                if rank is not None:
+                    ranks.append(rank)
+
+        elif isinstance(value, dict):
+            rank = get_rank_from_role(value)
+
+            if rank is not None:
+                ranks.append(rank)
+
+    unique = []
+
+    for rank in ranks:
+        if rank not in unique:
+            unique.append(rank)
+
+    unique.sort()
+
+    return unique
+
+
+def get_ranks_from_group_rows(group_rows, group_id):
+    ranks = []
+
+    rows = group_rows.get(int(group_id), [])
+
+    for row in rows:
+        for rank in collect_ranks_from_row(row):
+            if rank not in ranks:
+                ranks.append(rank)
+
+    ranks.sort()
+
+    return ranks
 
 
 def clean(value):
@@ -156,7 +251,8 @@ def first_joined_optional_label(group_rows):
             if label:
                 return label
 
-            row = group_rows.get(group_id) or {}
+            rows = group_rows.get(group_id) or []
+            row = rows[0] if rows else {}
             group = row.get("group") or {}
             return str(group.get("name") or group_id)
 
@@ -198,6 +294,20 @@ def make_nick(saved, user_rank, main_joined, group_rows):
     return nick[:32]
 
 
+def cumulative_rank_role_ids(rank_roles, user_rank):
+    result = set()
+
+    if user_rank <= 0:
+        return result
+
+    for rank, role_ids in rank_roles.items():
+        if rank <= user_rank:
+            for role_id in role_ids:
+                result.add(role_id)
+
+    return result
+
+
 async def refresh(discord_id):
     saved = pull(discord_id)
 
@@ -226,7 +336,8 @@ async def refresh(discord_id):
 
     group_rows = get_group_rows(roblox_id)
 
-    main_group_row = group_rows.get(int(Env.roblox_maingroup_id))
+    main_group_id = int(Env.roblox_maingroup_id)
+    main_group_row = get_group_first_row(group_rows, main_group_id)
     main_joined = main_group_row is not None
 
     joined_optional = []
@@ -241,7 +352,19 @@ async def refresh(discord_id):
         print("joined roblox groups:", list(group_rows.keys()))
         return False, "Roblox 메인 그룹 또는 인증 가능한 부서 그룹에 가입되어 있지 않습니다."
 
-    user_rank = get_rank_from_group_row(main_group_row) if main_joined else 0
+    user_ranks = []
+
+    if main_joined:
+        user_ranks = get_ranks_from_group_rows(group_rows, main_group_id)
+
+    if user_ranks:
+        user_rank = max(user_ranks)
+    else:
+        user_rank = 0
+
+    print("main group joined:", main_joined)
+    print("main group ranks detected:", user_ranks)
+    print("main group highest rank:", user_rank)
 
     rank_roles = parse_rank_roles()
 
@@ -264,7 +387,10 @@ async def refresh(discord_id):
     should_rank_role_ids = set()
 
     if main_joined:
-        should_rank_role_ids = set(rank_roles.get(user_rank, []))
+        should_rank_role_ids = cumulative_rank_role_ids(rank_roles, user_rank)
+
+    print("should rank discord roles:", list(should_rank_role_ids))
+    print("should optional discord roles:", list(should_optional_role_ids))
 
     try:
         await member.edit(
