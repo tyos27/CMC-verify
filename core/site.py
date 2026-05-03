@@ -296,7 +296,7 @@ async def callback(req: Request):
                 message_id,
                 "⚠️ 인증 완료 - 그룹 미가입",
                 f"<@{discord_id}>님, {roblox_name}으로 안전하게 연동이 완료되었어요!\n"
-                f"하지만 Roblox 메인 그룹에 가입되어 있지 않아 역할 지급은 되지 않았어요.",
+                f"하지만 그룹에 가입되어 있지 않아 역할 지급은 되지 않았어요.",
                 0xFEE75C
             ),
             bot.loop
