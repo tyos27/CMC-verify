@@ -6,8 +6,11 @@ from roblox.auth import start_link
 from store.links import pull, put
 from store.game_codes import create_discord_pending, consume_code
 from discord_side.roles import refresh
-from roblox.group import inside
 from datetime import datetime
+
+
+GROUP_URL = "https://www.roblox.com/communities/8487267/JAD-Jang-Ae-Dang#!/about"
+GAME_URL = "https://www.roblox.com/games/126742579358323/JS-Authentication-Center-JS"
 
 
 def stamp():
@@ -15,16 +18,51 @@ def stamp():
     return now.strftime("%Y-%m-%d %H:%M")
 
 
-def panel(title, desc, color=0x2f3136):
+def panel(title, desc="", color=0x2f3136, *extra):
+    parts = [str(desc or "")]
+    final_color = 0x2f3136
+
+    if isinstance(color, int):
+        final_color = color
+    else:
+        parts.append(str(color or ""))
+
+    for item in extra:
+        if isinstance(item, int):
+            final_color = item
+        else:
+            parts.append(str(item or ""))
+
+    description = "\n".join([x for x in parts if x])
+
     e = discord.Embed(
         title=title,
-        description=desc,
-        color=color
+        description=description,
+        color=final_color
     )
     e.set_footer(
         text=f"JAD Verify • {stamp()}"
     )
     return e
+
+
+def group_missing_panel(roblox_name):
+    return panel(
+        "⚠️ 그룹 미가입",
+        f"{roblox_name} 계정 연동은 완료되었어요!\n"
+        "하지만 Roblox 그룹에 가입되어 있지 않아 역할 지급은 되지 않았어요!",
+        0xfee75c
+    )
+
+
+def is_group_missing_message(msg):
+    value = str(msg or "")
+    return (
+        "그룹에 가입되어 있지" in value
+        or "그룹 미가입" in value
+        or "인증 가능한 부서 그룹" in value
+        or "역할 지급은 되지 않았" in value
+    )
 
 
 class TimedView(View):
@@ -80,8 +118,102 @@ class GameLinkButton(Button):
         super().__init__(
             label="인증 게임 바로가기",
             style=discord.ButtonStyle.link,
-            url="https://www.roblox.com/games/126742579358323/JS-Authentication-Center-JS"
+            url=GAME_URL
         )
+
+
+class GroupLinkButton(Button):
+    def __init__(self):
+        super().__init__(
+            label="그룹 바로가기",
+            style=discord.ButtonStyle.link,
+            url=GROUP_URL
+        )
+
+
+class RetryGroupButton(Button):
+    def __init__(self, owner_id):
+        super().__init__(
+            label="다시 시도하기",
+            style=discord.ButtonStyle.gray
+        )
+        self.owner_id = owner_id
+
+    async def callback(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                embed=panel(
+                    "⚠️ 권한 부족",
+                    "본인만 사용할 수 있습니다.",
+                    0xed4245
+                ),
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        old = pull(self.owner_id)
+
+        if not old:
+            await interaction.followup.send(
+                embed=panel(
+                    "❌ 확인 실패",
+                    "연동 기록이 없습니다. 다시 인증해주세요.",
+                    0xed4245
+                ),
+                ephemeral=True
+            )
+            return
+
+        ok, msg = await refresh(self.owner_id)
+
+        if ok:
+            await interaction.message.edit(
+                embed=panel(
+                    "✅ 인증 완료",
+                    msg,
+                    0x57f287
+                ),
+                view=None
+            )
+            return
+
+        if is_group_missing_message(msg):
+            v = GroupJoinRetryView(self.owner_id)
+
+            await interaction.message.edit(
+                embed=group_missing_panel(old.get("roblox_name") or "Roblox"),
+                view=v
+            )
+
+            v.message = interaction.message
+            return
+
+        await interaction.message.edit(
+            embed=panel(
+                "❌ 인증 실패",
+                msg,
+                0xed4245
+            ),
+            view=None
+        )
+
+        await interaction.followup.send(
+            embed=panel(
+                "❌ 처리 실패",
+                msg,
+                0xed4245
+            ),
+            ephemeral=True
+        )
+
+
+class GroupJoinRetryView(TimedView):
+    def __init__(self, owner_id):
+        super().__init__(owner_id)
+        self.add_item(GroupLinkButton())
+        self.add_item(RetryGroupButton(owner_id))
 
 
 class Gate(TimedView):
@@ -271,7 +403,7 @@ class RobloxNameModal(Modal):
             embed=panel(
                 "✅ 인증 대기 중",
                 f"인증하려는 Roblox 계정: `{roblox_name}`\n\n"
-                "이제 인증용 [Roblox 게임](https://www.roblox.com/games/126742579358323/JS-Authentication-Center-JS)에 해당 계정으로 접속하세요.\n"
+                f"이제 인증용 [Roblox 게임]({GAME_URL})에 해당 계정으로 접속하세요.\n"
                 "게임 화면에 표시되는 6자리 코드를 확인한 뒤 아래 **코드 입력** 버튼을 눌러 입력해주세요!\n\n"
                 "코드는 2분 동안만 유효해요!",
                 0x57f287
@@ -404,38 +536,65 @@ class GameCodeModal(Modal):
             row.get("roblox_display_name")
         )
 
-        if inside(int(row["roblox_id"])):
-            ok, msg = await refresh(interaction.user.id)
+        ok, msg = await refresh(interaction.user.id)
 
+        if ok:
             await self.target_message.edit(
                 embed=panel(
                     "✅ 인증 완료",
                     msg,
-                    0x57f287 if ok else 0xfee75c
+                    0x57f287
                 ),
                 view=None
             )
 
-            try:
-                await interaction.delete_original_response()
-            except Exception:
-                pass
+            await interaction.followup.send(
+                embed=panel(
+                    "✅ 처리 완료",
+                    "인증 결과 메시지를 업데이트했습니다.",
+                    0x57f287
+                ),
+                ephemeral=True
+            )
+            return
 
+        if is_group_missing_message(msg):
+            v = GroupJoinRetryView(self.owner_id)
+
+            await self.target_message.edit(
+                embed=group_missing_panel(row["roblox_name"]),
+                view=v
+            )
+
+            v.message = self.target_message
+
+            await interaction.followup.send(
+                embed=panel(
+                    "⚠️ 그룹 미가입",
+                    "계정 연동은 완료되었지만 Roblox 그룹 가입이 확인되지 않았습니다.",
+                    0xfee75c
+                ),
+                ephemeral=True
+            )
             return
 
         await self.target_message.edit(
             embed=panel(
-                "⚠️ 인증 저장 완료",
-                f"`{row['roblox_name']}` 계정 연동은 완료되었어요!\n하지만 Roblox 그룹에 가입되어 있지 않아 역할 지급은 되지 않았어요!",
-                0xfee75c
+                "❌ 인증 실패",
+                msg,
+                0xed4245
             ),
             view=None
         )
 
-        try:
-            await interaction.delete_original_response()
-        except Exception:
-            pass
+        await interaction.followup.send(
+            embed=panel(
+                "❌ 처리 실패",
+                msg,
+                0xed4245
+            ),
+            ephemeral=True
+        )
 
 
 class ConfirmView(TimedView):
@@ -469,11 +628,35 @@ class YesButton(Button):
 
         ok, msg = await refresh(self.owner_id)
 
+        if ok:
+            await interaction.response.edit_message(
+                embed=panel(
+                    "✅ 인증 완료",
+                    msg,
+                    0x57f287
+                ),
+                view=None
+            )
+            return
+
+        old = pull(self.owner_id)
+
+        if is_group_missing_message(msg) and old:
+            v = GroupJoinRetryView(self.owner_id)
+
+            await interaction.response.edit_message(
+                embed=group_missing_panel(old.get("roblox_name") or "Roblox"),
+                view=v
+            )
+
+            v.message = interaction.message
+            return
+
         await interaction.response.edit_message(
             embed=panel(
-                "✅ 인증 완료",
+                "❌ 인증 실패",
                 msg,
-                0x57f287 if ok else 0xed4245
+                0xed4245
             ),
             view=None
         )
