@@ -540,7 +540,7 @@ async def refresh(discord_id):
         print("no valid roblox group joined")
         print("main group:", Env.roblox_maingroup_id)
         print("joined roblox groups:", list(legacy_group_rows.keys()))
-        return False, "Roblox 메인 그룹 또는 인증 가능한 부서 그룹에 가입되어 있지 않습니다."
+        return False, "중군위 그룹 또는 여단에 가입되어있지 않아 역할은 지급되지 않았어요!"
 
     user_ranks = []
 
@@ -655,4 +655,4 @@ async def refresh(discord_id):
             print("role add failed:", e)
             return False, "역할 지급에 실패했습니다. 봇 역할 위치나 권한을 확인해주세요."
 
-    return True, f"{saved['roblox_name']} 계정 인증이 완료되었습니다."
+    return True, f"{saved['roblox_name']} 계정으로 인증이 완료되었습니다."
