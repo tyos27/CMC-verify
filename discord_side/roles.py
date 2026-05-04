@@ -8,10 +8,14 @@ from store.links import pull
 OPEN_CLOUD_BASE = "https://apis.roblox.com/cloud/v2"
 
 
+def main_group_id():
+    return int(Env.roblox_group_id)
+
+
 def parse_rank_roles():
     out = {}
 
-    raw = Env.rank_roles
+    raw = str(getattr(Env, "rank_roles", "") or "")
 
     for row in raw.split(","):
         row = row.strip()
@@ -42,7 +46,7 @@ def parse_rank_roles():
 def parse_rank_tags():
     out = {}
 
-    raw = Env.rank_tags
+    raw = str(getattr(Env, "rank_tags", "") or "")
 
     for row in raw.split(","):
         row = row.strip()
@@ -76,7 +80,7 @@ def parse_rank_tags():
 def optional_groups():
     result = []
 
-    for item in Env.roblox_group_roles:
+    for item in getattr(Env, "roblox_group_roles", []):
         try:
             result.append({
                 "group_id": int(item["group_id"]),
@@ -165,14 +169,14 @@ def extract_role_paths_from_membership(membership):
     if not isinstance(membership, dict):
         return result
 
-    possible_single_keys = (
+    single_keys = (
         "role",
         "rolePath",
         "role_path",
         "primaryRole"
     )
 
-    possible_multi_keys = (
+    multi_keys = (
         "roles",
         "rolePaths",
         "role_paths",
@@ -184,7 +188,7 @@ def extract_role_paths_from_membership(membership):
         "group_roles"
     )
 
-    for key in possible_single_keys:
+    for key in single_keys:
         value = membership.get(key)
 
         if isinstance(value, str):
@@ -196,13 +200,14 @@ def extract_role_paths_from_membership(membership):
             if nested is not None:
                 result.append(str(nested))
 
-    for key in possible_multi_keys:
+    for key in multi_keys:
         value = membership.get(key)
 
         if isinstance(value, list):
             for item in value:
                 if isinstance(item, str):
                     result.append(item)
+
                 elif isinstance(item, dict):
                     nested = item.get("path") or item.get("name") or item.get("id")
 
@@ -229,7 +234,7 @@ def list_group_roles_open_cloud(group_id):
     token = ""
 
     while True:
-        url = f"{OPEN_CLOUD_BASE}/groups/{group_id}/roles?maxPageSize=20"
+        url = f"{OPEN_CLOUD_BASE}/groups/{group_id}/roles?maxPageSize=100"
 
         if token:
             url += "&pageToken=" + quote(token, safe="")
@@ -286,37 +291,45 @@ def list_user_memberships_open_cloud(group_id, user_id):
     result = []
     token = ""
 
-    filter_value = f"user=='users/{user_id}'"
-    encoded_filter = quote(filter_value, safe="='")
+    filters = [
+        f"user=='users/{user_id}'",
+        f"user == 'users/{user_id}'"
+    ]
 
-    while True:
-        url = (
-            f"{OPEN_CLOUD_BASE}/groups/{group_id}/memberships"
-            f"?maxPageSize=100&filter={encoded_filter}"
-        )
+    for filter_value in filters:
+        token = ""
 
-        if token:
-            url += "&pageToken=" + quote(token, safe="")
+        while True:
+            url = (
+                f"{OPEN_CLOUD_BASE}/groups/{group_id}/memberships"
+                f"?maxPageSize=100&filter={quote(filter_value, safe='=')}"
+            )
 
-        data = open_cloud_get(url)
+            if token:
+                url += "&pageToken=" + quote(token, safe="")
 
-        if not data:
-            break
+            data = open_cloud_get(url)
 
-        memberships = (
-            data.get("groupMemberships")
-            or data.get("memberships")
-            or data.get("data")
-            or []
-        )
+            if not data:
+                break
 
-        for membership in memberships:
-            if isinstance(membership, dict):
-                result.append(membership)
+            memberships = (
+                data.get("groupMemberships")
+                or data.get("memberships")
+                or data.get("data")
+                or []
+            )
 
-        token = data.get("nextPageToken") or ""
+            for membership in memberships:
+                if isinstance(membership, dict):
+                    result.append(membership)
 
-        if not token:
+            token = data.get("nextPageToken") or ""
+
+            if not token:
+                break
+
+        if result:
             break
 
     print("open cloud memberships loaded:", group_id, user_id, result)
@@ -325,7 +338,7 @@ def list_user_memberships_open_cloud(group_id, user_id):
 
 
 def get_main_group_ranks_open_cloud(user_id):
-    group_id = int(Env.roblox_maingroup_id)
+    group_id = main_group_id()
 
     role_map = list_group_roles_open_cloud(group_id)
     memberships = list_user_memberships_open_cloud(group_id, user_id)
@@ -376,7 +389,12 @@ def roblox_groups_legacy(user_id):
             print("legacy roblox group api failed:", r.status_code, r.text)
             return []
 
-        return r.json().get("data", [])
+        data = r.json().get("data", [])
+
+        if not isinstance(data, list):
+            return []
+
+        return data
     except Exception as e:
         print("legacy roblox group api exception:", e)
         return []
@@ -423,7 +441,7 @@ def clean(value):
 
 
 def default_tag():
-    tag = Env.tag.strip()
+    tag = str(getattr(Env, "tag", "") or "").strip()
 
     if ":" in tag or "," in tag:
         return ""
@@ -443,6 +461,7 @@ def first_joined_optional_label(group_rows):
 
             row = group_rows.get(group_id) or {}
             group = row.get("group") or {}
+
             return str(group.get("name") or group_id)
 
     return ""
@@ -499,6 +518,47 @@ def exact_rank_role_ids(rank_roles, user_ranks):
     return result
 
 
+async def remove_managed_roles(member, base_role, rank_roles, optional_items):
+    all_rank_role_ids = set()
+
+    for role_ids in rank_roles.values():
+        for role_id in role_ids:
+            all_rank_role_ids.add(role_id)
+
+    all_optional_role_ids = set()
+
+    for item in optional_items:
+        all_optional_role_ids.add(item["role_id"])
+
+    remove_roles = []
+
+    for role in member.roles:
+        if role.id in all_rank_role_ids:
+            remove_roles.append(role)
+
+        if role.id in all_optional_role_ids:
+            remove_roles.append(role)
+
+    unique_remove_roles = []
+    seen = set()
+
+    for role in remove_roles:
+        if role.id in seen:
+            continue
+
+        seen.add(role.id)
+        unique_remove_roles.append(role)
+
+    if unique_remove_roles:
+        try:
+            await member.remove_roles(
+                *unique_remove_roles,
+                reason="Roblox group not joined"
+            )
+        except Exception as e:
+            print("managed role remove failed:", e)
+
+
 async def refresh(discord_id):
     saved = pull(discord_id)
 
@@ -524,23 +584,25 @@ async def refresh(discord_id):
         return False, "기본 역할을 찾지 못했습니다."
 
     roblox_id = int(saved["roblox_id"])
-
     legacy_group_rows = get_legacy_group_rows(roblox_id)
 
-    main_group_id = int(Env.roblox_maingroup_id)
-    main_joined = main_group_id in legacy_group_rows
+    main_joined = main_group_id() in legacy_group_rows
 
+    optional_items = optional_groups()
     joined_optional = []
 
-    for item in optional_groups():
+    for item in optional_items:
         if item["group_id"] in legacy_group_rows:
             joined_optional.append(item)
 
+    rank_roles = parse_rank_roles()
+
     if not main_joined and not joined_optional:
         print("no valid roblox group joined")
-        print("main group:", Env.roblox_maingroup_id)
+        print("discord_id:", discord_id)
+        print("roblox_id:", roblox_id)
+        print("main group:", main_group_id())
         print("joined roblox groups:", list(legacy_group_rows.keys()))
-        return False, "중군위 그룹 또는 여단에 가입되어있지 않아 역할은 지급되지 않았어요!"
 
     user_ranks = []
 
@@ -549,7 +611,7 @@ async def refresh(discord_id):
 
         if not user_ranks:
             legacy_rank = get_legacy_rank_from_group_row(
-                legacy_group_rows.get(main_group_id)
+                legacy_group_rows.get(main_group_id())
             )
 
             if legacy_rank > 0:
@@ -560,11 +622,9 @@ async def refresh(discord_id):
     print("main group joined:", main_joined)
     print("final main group ranks detected:", user_ranks)
 
-    rank_roles = parse_rank_roles()
-
     all_optional_role_ids = set()
 
-    for item in optional_groups():
+    for item in optional_items:
         all_optional_role_ids.add(item["role_id"])
 
     should_optional_role_ids = set()
